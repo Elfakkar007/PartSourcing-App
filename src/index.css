@@ -1,121 +1,313 @@
 @import "tailwindcss";
 
+/* ===================================================================
+   Design System — Plant Sourcing App
+   Based on DESIGN-plant-sourcing.md
+   Dense, functional, spreadsheet-inspired. Color = meaning, not decor.
+   =================================================================== */
+
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  /* --- Font families --- */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+
+  /* --- Colors: semantic palette --- */
   --color-primary: #188038;
-  --color-primary-light: #0F9D58;
-  --color-accent: #1a73e8;
+  --color-primary-hover: #0F9D58;
+  --color-primary-light-bg: #e6f4ea;
+
+  --color-secondary: #1a73e8;
+  --color-secondary-light-bg: #e8f0fe;
+
   --color-warning: #f9ab00;
+  --color-warning-light-bg: #fef7e0;
+
   --color-danger: #d93025;
-}
-:root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --color-danger-hover: #b3261e;
+  --color-danger-light-bg: #fce8e6;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  --color-ink: #1f2328;
+  --color-ink-muted: #5f6368;
+  --color-ink-faint: #80868b;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --color-canvas: #ffffff;
+  --color-surface-subtle: #f8f9fa;
+  --color-surface-panel: #f1f3f4;
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  --color-border: #dadce0;
+  --color-border-strong: #c4c7ca;
+
+  --color-grid-line: #e8eaed;
+  --color-grid-header-bg: #f8f9fa;
+  --color-grid-row-hover: #f1f8f3;
+  --color-grid-row-selected: #e6f4ea;
+
+  --color-focus-ring: #1a73e8;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+/* --- Base resets --- */
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #1f2328;
+  background: #f8f9fa;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
   min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+/* --- Typography presets (utility classes) --- */
+.text-page-title {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.1px;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
-  margin: 0;
+.text-section-heading {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
+.text-body-strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.text-grid-cell {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.text-grid-header {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.2px;
+}
+
+.text-caption {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+/* --- Shadow tokens --- */
+.shadow-subtle {
+  box-shadow: rgba(0, 0, 0, 0.06) 0 1px 2px;
+}
+
+.shadow-card {
+  box-shadow: rgba(0, 0, 0, 0.08) 0 1px 3px, rgba(0, 0, 0, 0.04) 0 1px 2px;
+}
+
+.shadow-popover {
+  box-shadow: rgba(0, 0, 0, 0.12) 0 4px 16px;
+}
+
+/* --- Status chips --- */
+.chip-existing {
   display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+  align-items: center;
+  gap: 4px;
+  background: #e6f4ea;
+  color: #188038;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  border-radius: 999px;
+  padding: 2px 10px;
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+.chip-inactive {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f1f3f4;
+  color: #5f6368;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+/* --- Progress bar --- */
+.progress-track {
+  background: #f1f3f4;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  background: #188038;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+/* --- Sync status bar --- */
+.sync-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.sync-bar--online {
+  background: #e6f4ea;
+  color: #188038;
+}
+
+.sync-bar--offline {
+  background: #fef7e0;
+  color: #f9ab00;
+}
+
+.sync-bar--syncing {
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+/* --- Card component --- */
+.ds-card {
+  background: #ffffff;
+  border: 1px solid #dadce0;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: rgba(0, 0, 0, 0.06) 0 1px 2px;
+}
+
+/* --- Input field --- */
+.ds-input {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #1f2328;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.ds-input::placeholder {
+  color: #80868b;
+}
+
+.ds-input:focus {
+  outline: none;
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
+}
+
+/* --- Button presets --- */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #188038;
+  color: #ffffff;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.btn-primary:hover {
+  background: #0F9D58;
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #ffffff;
+  color: #1f2328;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-secondary:hover {
+  background: #f8f9fa;
+}
+
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #ffffff;
+  color: #d93025;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1px solid #d93025;
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-danger:hover {
+  background: #fce8e6;
+}
+
+/* --- Animations --- */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-spin {
+  animation: spin 0.8s linear infinite;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
 }
