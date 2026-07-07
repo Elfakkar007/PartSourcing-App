@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import LinePage from './pages/LinePage'
 
 function PrivateRoute({ children }) {
   const { currentUser } = useAuth()
@@ -31,6 +32,14 @@ function App() {
             element={
               <PrivateRoute>
                 <Dashboard />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/line/:lineId"
+            element={
+              <PrivateRoute>
+                <LinePage />
               </PrivateRoute>
             }
           />

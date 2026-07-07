@@ -33,7 +33,7 @@ export function AuthProvider({ children }) {
             setCurrentUser({ ...user, ...userData })
             setUserRole(userData.role)
           } else {
-            console.warn('User document not found in Firestore')
+            console.warn('User document not found in Firestore for uid:', user.uid)
             setCurrentUser(user)
             setUserRole(null)
           }

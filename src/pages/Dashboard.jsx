@@ -107,13 +107,44 @@ function StatCard({ label, value, subtext, accent }) {
   )
 }
 
-function ProgressCard({ line }) {
+function ProgressCard({ line, isOwnLine, onClick }) {
   const pct = line.totalRows > 0 ? Math.round((line.completedRows / line.totalRows) * 100) : 0
 
   return (
-    <div className="ds-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#1f2328' }}>{line.name}</h3>
+    <div
+      className="ds-card"
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'box-shadow 0.15s',
+        ...(isOwnLine ? {
+          borderLeft: '3px solid #1a73e8',
+          background: '#f8fbff',
+        } : {}),
+      }}
+      onMouseEnter={(e) => { if (onClick) e.currentTarget.style.boxShadow = 'rgba(0,0,0,0.08) 0 2px 8px' }}
+      onMouseLeave={(e) => { if (onClick) e.currentTarget.style.boxShadow = 'rgba(0,0,0,0.06) 0 1px 2px' }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#1f2328' }}>{line.name}</h3>
+          {isOwnLine && (
+            <span style={{
+              fontSize: '11px',
+              fontWeight: 600,
+              color: '#1a73e8',
+              background: '#e8f0fe',
+              borderRadius: '999px',
+              padding: '1px 8px',
+              lineHeight: 1.4,
+            }}>
+              Line Kamu
+            </span>
+          )}
+        </div>
         <span style={{ fontSize: '14px', fontWeight: 600, color: pct === 100 ? '#188038' : '#1f2328' }}>
           {pct}%
         </span>
@@ -177,9 +208,20 @@ function ProgressCard({ line }) {
   )
 }
 
+/* Neutral chart palette — avoids semantic green/amber/red reserved for status */
+const CATEGORY_COLORS = [
+  '#1a73e8', // Blue
+  '#7c3aed', // Violet
+  '#0d9488', // Teal
+  '#6366f1', // Indigo
+  '#0891b2', // Cyan
+  '#8b5cf6', // Purple
+  '#0e7490', // Dark cyan
+  '#4f46e5', // Deep indigo
+]
+
 function CategoryBar({ categories }) {
   const max = Math.max(...categories.map(c => c.count))
-  const colors = ['#188038', '#1a73e8', '#f9ab00', '#d93025', '#0F9D58', '#5f6368', '#80868b', '#c4c7ca']
 
   return (
     <div className="ds-card" style={{ gridColumn: '1 / -1' }}>
@@ -208,7 +250,7 @@ function CategoryBar({ categories }) {
               <div style={{
                 height: '100%',
                 width: `${(cat.count / max) * 100}%`,
-                background: colors[i % colors.length],
+                background: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
                 borderRadius: '4px',
                 transition: 'width 0.4s ease',
               }} />
@@ -250,7 +292,7 @@ export default function Dashboard() {
 
   const roleLabelMap = {
     admin: 'Admin',
-    intern: 'Anak Magang',
+    intern: 'Internship',
   }
 
   return (
@@ -431,7 +473,12 @@ export default function Dashboard() {
             gap: '12px',
           }}>
             {LINES.map((line) => (
-              <ProgressCard key={line.id} line={line} />
+              <ProgressCard
+                key={line.id}
+                line={line}
+                isOwnLine={userRole === 'intern' && currentUser?.assignedLine === line.id}
+                onClick={() => navigate(`/line/line${line.id}`)}
+              />
             ))}
           </div>
         </div>
