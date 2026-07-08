@@ -426,9 +426,14 @@ body {
   padding: 0 10px;
   height: 36px;
   border-bottom: 2px solid #c4c7ca;
+  border-right: 1px solid #e8eaed;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.data-grid th:last-child {
+  border-right: none;
 }
 
 .data-grid td {
@@ -439,8 +444,13 @@ body {
   padding: 0;
   height: 40px;
   border-bottom: 1px solid #e8eaed;
+  border-right: 1px solid #e8eaed;
   position: relative;
   overflow: hidden;
+}
+
+.data-grid td:last-child {
+  border-right: none;
 }
 
 .data-grid tr:hover td {
