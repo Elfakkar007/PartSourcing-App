@@ -176,6 +176,11 @@ function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey
       if (type !== 'select' && inputRef.current.select) {
         inputRef.current.select()
       }
+      // Auto-resize textarea on mount
+      if (type === 'text') {
+        inputRef.current.style.height = '40px'
+        inputRef.current.style.height = (inputRef.current.scrollHeight) + 'px'
+      }
     }
   }, [isEditing, type])
 
@@ -254,25 +259,65 @@ function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey
           ))}
         </select>
       )
+    } else if (type === 'text') {
+      content = (
+        <>
+          <textarea
+            ref={inputRef}
+            className="grid-cell-input grid-cell-textarea"
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              width: '100%',
+              minHeight: '40px',
+              height: 'auto',
+              zIndex: 10,
+              boxShadow: 'rgba(0,0,0,0.15) 0 4px 16px, rgba(0,0,0,0.08) 0 1px 4px',
+              borderRadius: '2px',
+              background: '#ffffff',
+              resize: 'none',
+              wordWrap: 'break-word',
+              whiteSpace: 'pre-wrap',
+              overflow: 'hidden'
+            }}
+            value={editValue}
+            onChange={(e) => {
+              setEditValue(e.target.value)
+              e.target.style.height = '40px'
+              e.target.style.height = (e.target.scrollHeight) + 'px'
+            }}
+            onBlur={commitEdit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                commitEdit()
+              } else if (e.key === 'Escape') {
+                setIsEditing(false)
+              }
+            }}
+          />
+          {showSaved && <SaveIndicator />}
+        </>
+      )
     } else {
       content = (
         <>
           <input
             ref={inputRef}
-            type={type === 'number' ? 'number' : 'text'}
+            type="number"
             className="grid-cell-input"
-            style={wide ? {
+            style={{
               position: 'absolute',
               left: 0,
               top: 0,
-              height: '40px',
-              minWidth: '320px',
-              width: `max(100%, ${Math.max(320, (editValue?.length || 0) * 8 + 40)}px)`,
+              width: '100%',
+              height: '100%',
               zIndex: 10,
               boxShadow: 'rgba(0,0,0,0.15) 0 4px 16px, rgba(0,0,0,0.08) 0 1px 4px',
               borderRadius: '2px',
-              background: '#ffffff',
-            } : undefined}
+              background: '#ffffff'
+            }}
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
             onBlur={commitEdit}

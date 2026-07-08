@@ -19,8 +19,11 @@
     dengan indikator ✓, tombol "+ Tambah Baris", real-time via `onSnapshot`
   - Permission check: intern hanya bisa edit Line miliknya — **sudah diuji & PASSED**
     (intern Line lain akses Line lain → ditolak edit, banner read-only muncul benar)
-  - Cell melebar otomatis (overlay position:absolute) saat kolom Description/Spesification
-    diedit, agar teks panjang terbaca penuh
+  - Teks panjang pada sel (misal Description/Spesification) kini menggunakan `textarea` yang 
+    melebar otomatis ke bawah (vertical auto-resize) saat diedit. Ini menjaga lebar kolom 
+    tetap konsisten sehingga data kolom di sebelahnya tidak tertutup dan konteks tetap terjaga.
+  - Ditambahkan garis vertikal pemisah antar kolom (`border-right`) pada grid untuk memperjelas 
+    batas sel dan mengurangi risiko salah klik (menyesuaikan style spreadsheet).
   - Kolom Foto: hover-preview popup (desktop) & tap-preview modal (mobile) menampilkan
     gambar dari Google Drive — **sudah diperbaiki & berfungsi** (lihat Log Bug di bawah
     soal 2 masalah yang sempat menghambat ini)
@@ -117,7 +120,8 @@
 - ✅ Warna chart kategori — palet netral, tidak lagi pakai warna semantik status.
 - ✅ Label role di header — akar masalah Firestore Rules, sudah diperbaiki.
 - ✅ Dashboard intern menampilkan semua Line — keputusan final, dengan highlight visual.
-- ✅ Cell widening untuk kolom teks panjang — overlay position:absolute saat mode edit.
+- ✅ Cell widening untuk kolom teks panjang — diubah dari horizontal overlay menjadi auto-resize vertikal (`textarea`) untuk UX yang lebih baik.
+- ✅ Penambahan garis batas vertikal kolom grid untuk kejelasan batas data.
 - ✅ Hover/tap preview Foto — sudah berfungsi penuh setelah fix Portal.
 
 ## File Acuan (selalu sertakan saat mulai sesi baru dengan AI editor)
