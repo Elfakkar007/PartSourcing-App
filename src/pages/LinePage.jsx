@@ -109,6 +109,7 @@ function extractDriveFileId(url) {
   return null
 }
 
+
 /* ------------------------------------------------------------------ */
 /*  SyncStatusBar (duplicated from Dashboard — extract later)         */
 /* ------------------------------------------------------------------ */
@@ -198,17 +199,16 @@ function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey
     const oldValue = displayValue != null ? (type === 'number' ? displayValue : String(displayValue)) : (type === 'number' ? null : '')
     if (newValue === oldValue) return
 
-    try {
-      await onSave(rowId, field, newValue)
+    onSave(rowId, field, newValue).then(() => {
       // Show save indicator
       setShowSaved(true)
       savedTimerRef.current = setTimeout(() => setShowSaved(false), 1500)
-    } catch (err) {
+    }).catch(err => {
       console.error(`Failed to save ${field}:`, err)
       if (err.code === 'permission-denied') {
         alert('Permission denied: Anda tidak memiliki akses untuk mengedit data Line ini.')
       }
-    }
+    })
   }
 
   function handleKeyDown(e) {
@@ -605,19 +605,16 @@ export default function LinePage() {
   async function handleAddRow() {
     if (!canEdit || addingRow) return
     setAddingRow(true)
-    try {
-      await addDoc(
-        collection(db, 'components'),
-        makeEmptyRow(lineId, activeLocation, currentUser?.uid)
-      )
-    } catch (err) {
+    addDoc(
+      collection(db, 'components'),
+      makeEmptyRow(lineId, activeLocation, currentUser?.uid)
+    ).catch((err) => {
       console.error('Failed to add row:', err)
       if (err.code === 'permission-denied') {
         alert('Permission denied: Anda tidak memiliki akses untuk menambah data di Line ini.')
       }
-    } finally {
-      setAddingRow(false)
-    }
+    })
+    setTimeout(() => setAddingRow(false), 300)
   }
 
   async function handleLogout() {

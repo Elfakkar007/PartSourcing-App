@@ -6,38 +6,53 @@
 - ✅ Setup project React + Vite + Tailwind + Firebase
 - ✅ Firebase Auth aktif (Email/Password), 5 user dibuat (1 admin + 4 intern)
 - ✅ Firestore koleksi `users` berisi role + assignedLine per akun
-- ✅ Login & Dashboard dasar berhasil, sudah terhubung ke Firebase Auth + Firestore
-- ✅ Design system diterapkan ke Login & Dashboard (lihat DESIGN-plant-sourcing.md)
-- ✅ Login page di-refactor: duplikat komponen dihapus, design system tokens diterapkan (warna, tipografi, shadow, input, button sesuai DESIGN-plant-sourcing.md), toggle show/hide password ditambahkan
-- ✅ Dashboard di-refactor: duplikat komponen dihapus, layout lengkap dengan:
-  - Sticky header dengan nama user & role
-  - Sync status bar (otomatis deteksi online/offline)
-  - Stat cards (Total Part, Existing, Tidak Aktif, Kelengkapan Data)
-  - Progress bar keseluruhan (gabungan 4 Line)
-  - Progress per Line dengan checklist lokasi (card clickable → navigasi ke /line/lineN)
-  - Breakdown per Category (horizontal bar chart, palet warna netral non-semantik)
-  - Semua menggunakan data placeholder (akan diganti Firestore queries)
-- ✅ CSS design system lengkap di `index.css`: semua token warna, tipografi, spacing, shadow, komponen (btn-primary/secondary/danger, ds-card, ds-input, progress-track/fill, sync-bar, chip-existing/inactive, data-grid, location-tabs, grid-toolbar, save-indicator) sesuai DESIGN-plant-sourcing.md
-- ✅ `index.html` duplikat dokumen HTML dihapus, meta description ditambahkan
-- ✅ `App.css` dibersihkan dari sisa template Vite (hero, counter, ticks)
-- ✅ **Grid data per Line & Location (iterasi 1)** — halaman `/line/:lineId`:
-  - Tab horizontal per Location (data dummy, 3-4 lokasi per Line)
-  - Grid/tabel 11 kolom sesuai Spesifikasi §4 (tanpa Plant & Location)
-  - Inline cell editing: klik cell → edit langsung, Enter/blur → simpan, Escape → batal
-  - Kolom Status pakai `<select>` (Existing / Tidak Aktif)
-  - Kolom Foto tampil sebagai link biru clickable (buka tab baru)
-  - Auto-save ke Firestore koleksi `components`, dengan indikator ✓ fade-out
-  - Tombol "+ Tambah Baris" (1 baris kosong baru)
-  - Real-time update via `onSnapshot` (data langsung muncul tanpa refresh)
-  - Permission check client-side: intern hanya bisa edit Line miliknya sendiri,
-    Line lain ditampilkan read-only dengan banner peringatan
-  - Error handling untuk permission-denied dari Firestore Security Rules
-- ⬜ Belum: bulk add/delete, duplikat baris, recycle bin, log aktivitas
+- ✅ Firestore Security Rules diperketat: user baca profil sendiri (atau admin baca semua),
+  koleksi `components` — read semua yang login, write dibatasi admin atau intern sesuai
+  `line` miliknya sendiri
+- ✅ Login & Dashboard lengkap, terhubung Firebase Auth + Firestore, design system diterapkan
+- ✅ Dashboard: stat cards, progress keseluruhan, progress per Line + checklist lokasi
+  (highlight "Line Kamu" untuk intern), breakdown per Category (palet warna netral)
+- ✅ Label role di UI: "Admin" dan "Internship" (keputusan gaya, bukan "Anak Magang")
+- ✅ **Grid data per Line & Location — SELESAI, iterasi 1 lengkap**, halaman `/line/:lineId`:
+  - Tab horizontal per Location (data dummy)
+  - Grid 11 kolom sesuai Spesifikasi §4, inline cell editing, auto-save ke Firestore
+    dengan indikator ✓, tombol "+ Tambah Baris", real-time via `onSnapshot`
+  - Permission check: intern hanya bisa edit Line miliknya — **sudah diuji & PASSED**
+    (intern Line lain akses Line lain → ditolak edit, banner read-only muncul benar)
+  - Cell melebar otomatis (overlay position:absolute) saat kolom Description/Spesification
+    diedit, agar teks panjang terbaca penuh
+  - Kolom Foto: hover-preview popup (desktop) & tap-preview modal (mobile) menampilkan
+    gambar dari Google Drive — **sudah diperbaiki & berfungsi** (lihat Log Bug di bawah
+    soal 2 masalah yang sempat menghambat ini)
+- 🔄 **Fix offline-first sedang diterapkan**: bug tombol "Tambah Baris" macet
+  permanen saat offline (root cause: `await addDoc()` menunggu ack server,
+  menggantung tanpa batas saat offline) — fix: hilangkan `await`, lepas state
+  loading segera, biarkan `onSnapshot` yang update UI begitu data masuk cache
+  lokal. Sync-status-bar juga diperbaiki agar tidak hanya mengandalkan
+  `navigator.onLine` (yang bisa salah karena mendeteksi adapter jaringan
+  virtual seperti VPN/WSL2/Docker, bukan konektivitas internet nyata) —
+  disilangkan dengan status koneksi Firestore (`onSnapshot` error
+  `unavailable` vs snapshot `metadata.fromCache`). **Perlu verifikasi ulang
+  di browser setelah kedua fix ini diterapkan** sebelum dianggap selesai.
+- ℹ️ **Keterbatasan cache offline yang perlu diketahui (bukan bug)**: jika
+  sebuah Location belum pernah dibuka sekali pun saat online, datanya TIDAK
+  akan muncul saat offline (cache Firestore bersifat per-query, bukan
+  download seluruh database). Menambah baris baru tetap bisa berhasil karena
+  `addDoc()` tidak butuh membaca data lama. Risiko: anak magang bisa tanpa
+  sadar menambah data duplikat di Location yang belum pernah dibuka online.
+  **Rekomendasi SOP (bukan perbaikan kode)**: anak magang membuka semua tab
+  Location di Line miliknya minimal sekali saat online (misal di awal shift)
+  sebelum bekerja di titik dengan sinyal buruk/tanpa sinyal.
+
 - ⬜ Belum: export/import Excel
-- ⬜ Belum: dashboard chart & checklist publik (data masih placeholder)
-- ⬜ Belum: PWA/offline persistence penuh (baru enableIndexedDbPersistence di firebase.js)
-- ⬜ Belum: menghubungkan dashboard ke data Firestore real (saat ini placeholder)
-- ⬜ Belum: hover-preview popup untuk kolom Foto (link Google Drive)
+- ⬜ Belum: dashboard chart & checklist publik (data masih placeholder, belum tersambung
+  ke Firestore asli — masih dummy)
+- ⬜ Belum: PWA/offline persistence penuh (masih pakai `enableIndexedDbPersistence`, ada
+  warning deprecated — migrasi ke `FirestoreSettings.cache` belum urgent, catat sebagai
+  utang teknis kecil)
+- ⬜ Belum: kolom konfigurasi oleh admin (syarat kelengkapan & visibility per kolom)
+- ⬜ Belum: dijalankan checklist testing manual menyeluruh untuk fitur grid (lihat
+  dokumen terpisah `Checklist_Testing_Grid.md`)
 
 ## Keputusan Penting (jangan diubah tanpa alasan kuat & sepengetahuan admin project)
 - Kolom **Foto** = teks link Google Drive, BUKAN file upload. Tidak pakai Firebase Storage.
@@ -55,48 +70,58 @@
 - Model input: grid/spreadsheet dengan cell editable inline + autosave. BUKAN form+submit.
 - Design system mengacu **DESIGN-plant-sourcing.md** — utilitarian, spreadsheet-inspired,
   warna hanya untuk semantik (hijau=success, biru=info/link, kuning=warning, merah=danger).
-  Tidak pakai gradient dekoratif, dark mode, atau elemen visual tanpa fungsi.
-- Label role di UI: "Admin" dan "Internship" (bahasa Inggris, keputusan gaya
-  dari admin project) — bukan "Anak Magang".
+- Label role di UI: "Admin" dan "Internship" (keputusan gaya dari admin project).
+- Dashboard intern menampilkan progress SEMUA Line (gabungan, fungsi leaderboard),
+  karena datanya cuma agregat, bukan data mentah sensitif.
 
 ## Log Bug/Isu yang Pernah Ditemukan (biar tidak terulang)
-- **Heading nyaris tak terlihat**: disebabkan sisa CSS bawaan template Vite (dark-mode
-  variables) yang belum dihapus, bentrok dengan background Tailwind. → Sudah dihapus.
-- **Role tampil kosong (`-`)**: disebabkan nama koleksi Firestore salah huruf besar/kecil
-  (`Users` vs `users`). → Sudah diperbaiki, dokumen dipindah ke koleksi `users`.
-- **Login terasa lambat**: bukan masalah koneksi, tapi tidak ada loading indicator saat
-  AuthContext menunggu proses `getDoc` ke Firestore. → Sudah ditangani (AuthProvider
-  menunggu `loading` selesai sebelum render children).
-- **Duplikat kode di Login.jsx & Dashboard.jsx**: kedua file berisi komponen yang sama
-  persis tertulis 2× — penyebabnya kemungkinan copy-paste yang tidak disadari.
-  → Sudah dibersihkan, sekarang masing-masing file hanya berisi 1 komponen.
-- **Duplikat HTML di index.html**: file berisi 2 dokumen `<!doctype html>` sekaligus.
-  → Sudah dibersihkan, sekarang hanya 1 dokumen valid.
-- **Sisa CSS template Vite di App.css & index.css**: dark-mode variables, sizing #root
-  yang aneh (width 1126px, border, dll), hero/counter/ticks styles — semuanya tidak
-  relevan dan bentrok dengan design system. → Sudah dihapus total, diganti dengan
-  design system tokens yang sesuai DESIGN-plant-sourcing.md.
-- **Role label di header menampilkan "User" generik**: akar masalah BUKAN di logic
-  mapping role di React (roleLabelMap dan AuthContext sudah benar). Penyebab sebenarnya
-  adalah **Firestore Security Rules masih dalam production mode default yang menolak
-  semua read/write**. `getDoc()` gagal → catch block set `userRole = null` → fallback
-  "User" ditampilkan. → Sudah diperbaiki manual di Firebase Console (rules diubah agar
-  user terautentikasi bisa membaca dokumen profil sendiri di koleksi `users`).
-- **Warna chart kategori melanggar semantik design system**: chart "Breakdown per
-  Category" memakai hijau/amber/merah yang direservasi untuk status. → Sudah diganti
-  dengan palet netral (biru/violet/teal/indigo) di `CATEGORY_COLORS`.
+- **Heading nyaris tak terlihat**: sisa CSS dark-mode bawaan template Vite bentrok
+  dengan Tailwind. → Sudah dihapus.
+- **Role tampil kosong / label "User" generik**: akar masalah sebenarnya BUKAN nama
+  koleksi atau logic mapping role (dua-duanya sudah benar), melainkan **Firestore
+  Security Rules masih production mode default** (`allow read, write: if false`) yang
+  menolak semua akses termasuk baca profil sendiri. → Diperbaiki di Firebase Console,
+  bukan di kode React.
+- **Login lambat, duplikat kode/HTML**: sudah diperbaiki di sesi-sesi awal.
+- **Warna chart kategori melanggar semantik design system**: sudah diganti palet netral.
+- **AI editor kehabisan kuota di tengah pengerjaan cell-widening & Foto-preview**: logic
+  JSX selesai duluan, CSS belum sempat ditambahkan → tampilan sementara berantakan.
+  → Pelajaran: kalau kuota AI terbatas/sesi bisa terputus, minta CSS & logic dikerjakan
+  dalam prompt terpisah dari awal, supaya kalau terputus, satu bagian tetap utuh.
+- **Popup preview Foto tidak muncul sama sekali meski CSS & logic sudah benar**: akar
+  masalah adalah `.data-grid-wrapper` punya `overflow-x: auto`, yang otomatis membuat
+  `overflow-y` browser jadi `auto` juga (bukan `visible`) — sehingga popover yang
+  posisinya menyembul keluar dari cell ikut ter-clip vertikal oleh wrapper tabel,
+  walau `<td>`-nya sendiri sudah `overflow: visible`. → Diperbaiki dengan me-render
+  popover & modal via **React Portal** ke `document.body` (bukan child di dalam tabel),
+  posisi dihitung manual pakai `getBoundingClientRect()`. **Pelajaran umum**: kalau ada
+  elemen "melayang" (tooltip/popover/dropdown) di dalam container yang punya
+  `overflow-x/y: auto|hidden|scroll`, pertimbangkan Portal dari awal alih-alih
+  mengandalkan `overflow: visible` di elemen anak — parent yang scrollable akan
+  tetap meng-clip elemen tersebut.
 
-## Catatan Review (perlu ditindaklanjuti sebelum lanjut fitur berikutnya)
-- ✅ ~~Warna chart "Breakdown per Category"~~ — sudah diganti palet netral
-  (biru/violet/teal/indigo), tidak lagi memakai warna semantik status.
-- ✅ ~~Label role di header~~ — akar masalah: Firestore Security Rules (bukan kode React).
-  Sudah diperbaiki di Firebase Console.
-- ✅ ~~Dashboard intern menampilkan semua Line~~ — diputuskan: tetap tampilkan gabungan
-  semua 4 Line (fungsi leaderboard per spesifikasi §9, data yang ditampilkan hanya
-  agregat). Ditambahkan highlight visual (border biru + badge "Line Kamu") pada card
-  Line milik intern yang login, agar mereka langsung tahu mana Line-nya.
+- **Tombol "Tambah Baris" (dan simpan cell) macet permanen saat offline**:
+  akar masalah `await addDoc()`/`await updateDoc()` menunggu konfirmasi
+  server sebelum resolve Promise, padahal data sudah masuk cache lokal lebih
+  dulu — saat offline Promise ini menggantung tanpa batas, sehingga state
+  loading tidak pernah dilepas. → Diperbaiki dengan tidak menunggu Promise
+  untuk melepas state UI, cukup tangkap `.catch()` untuk error
+  `permission-denied`.
+- **Sync-status-bar salah menampilkan "Online" padahal internet benar-benar
+  mati**: `navigator.onLine` cuma mendeteksi ada/tidaknya interface jaringan
+  aktif (termasuk adapter virtual VPN/WSL2/Docker), bukan konektivitas
+  internet sesungguhnya. → Diperbaiki dengan menyilangkan `navigator.onLine`
+  dengan status real dari listener `onSnapshot` Firestore (`unavailable`
+  error vs `metadata.fromCache`).
+
+- ✅ Warna chart kategori — palet netral, tidak lagi pakai warna semantik status.
+- ✅ Label role di header — akar masalah Firestore Rules, sudah diperbaiki.
+- ✅ Dashboard intern menampilkan semua Line — keputusan final, dengan highlight visual.
+- ✅ Cell widening untuk kolom teks panjang — overlay position:absolute saat mode edit.
+- ✅ Hover/tap preview Foto — sudah berfungsi penuh setelah fix Portal.
 
 ## File Acuan (selalu sertakan saat mulai sesi baru dengan AI editor)
 - `Spesifikasi_App_Plant_Sourcing.md` — spesifikasi fitur & arsitektur lengkap
 - `DESIGN-plant-sourcing.md` — design system (warna, tipografi, komponen grid, dll)
 - `PROGRESS.md` — file ini
+- `Checklist_Testing_Grid.md` — checklist manual testing untuk fitur grid (baru)
