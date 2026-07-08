@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
@@ -12,17 +13,17 @@ import { db } from '../lib/firebase'
 /*  (Plant & Location excluded — they are navigation context)         */
 /* ------------------------------------------------------------------ */
 const COLUMNS = [
-  { key: 'subMachine',     label: 'Sub-Machine',     width: 140, type: 'text' },
-  { key: 'itemCode',       label: 'Item Code',       width: 120, type: 'text' },
-  { key: 'category',       label: 'Category',        width: 120, type: 'text' },
-  { key: 'part',           label: 'Part',             width: 130, type: 'text' },
-  { key: 'description',    label: 'Description',     width: 160, type: 'text' },
-  { key: 'spesification',  label: 'Spesification',   width: 160, type: 'text' },
-  { key: 'warehouseName',  label: 'Warehouse Name',  width: 140, type: 'text' },
-  { key: 'status',         label: 'Status',          width: 120, type: 'select', options: ['', 'Existing', 'Tidak Aktif'] },
-  { key: 'qty',            label: 'Qty',             width: 70,  type: 'number' },
-  { key: 'foto',           label: 'Foto',            width: 120, type: 'foto' },
-  { key: 'qtyWh',          label: 'Qty WH',          width: 80,  type: 'number' },
+  { key: 'subMachine', label: 'Sub-Machine', width: 140, type: 'text', wide: true },
+  { key: 'itemCode', label: 'Item Code', width: 120, type: 'text', wide: true },
+  { key: 'category', label: 'Category', width: 120, type: 'text', wide: true },
+  { key: 'part', label: 'Part', width: 130, type: 'text', wide: true },
+  { key: 'description', label: 'Description', width: 160, type: 'text', wide: true },
+  { key: 'spesification', label: 'Spesification', width: 160, type: 'text', wide: true },
+  { key: 'warehouseName', label: 'Warehouse Name', width: 140, type: 'text', wide: true },
+  { key: 'status', label: 'Status', width: 120, type: 'select', wide: true, options: ['', 'Existing', 'Tidak Aktif'] },
+  { key: 'qty', label: 'Qty', width: 70, type: 'number', wide: true },
+  { key: 'foto', label: 'Foto', width: 120, type: 'foto', wide: true },
+  { key: 'qtyWh', label: 'Qty WH', width: 80, type: 'number', wide: true },
 ]
 
 /* ------------------------------------------------------------------ */
@@ -30,24 +31,24 @@ const COLUMNS = [
 /* ------------------------------------------------------------------ */
 const LOCATIONS_BY_LINE = {
   line1: [
-    { id: 'boiler-room',   name: 'Boiler Room' },
-    { id: 'turbine-hall',   name: 'Turbine Hall' },
-    { id: 'control-room',   name: 'Control Room' },
+    { id: 'boiler-room', name: 'Boiler Room' },
+    { id: 'turbine-hall', name: 'Turbine Hall' },
+    { id: 'control-room', name: 'Control Room' },
   ],
   line2: [
-    { id: 'compressor',       name: 'Compressor' },
+    { id: 'compressor', name: 'Compressor' },
     { id: 'electrical-panel', name: 'Electrical Panel' },
-    { id: 'generator-room',   name: 'Generator Room' },
+    { id: 'generator-room', name: 'Generator Room' },
   ],
   line3: [
-    { id: 'pump-station',    name: 'Pump Station' },
-    { id: 'cooling-tower',   name: 'Cooling Tower' },
+    { id: 'pump-station', name: 'Pump Station' },
+    { id: 'cooling-tower', name: 'Cooling Tower' },
     { id: 'water-treatment', name: 'Water Treatment' },
   ],
   line4: [
-    { id: 'motor-room',   name: 'Motor Room' },
-    { id: 'transformer',  name: 'Transformer' },
-    { id: 'switchgear',   name: 'Switchgear' },
+    { id: 'motor-room', name: 'Motor Room' },
+    { id: 'transformer', name: 'Transformer' },
+    { id: 'switchgear', name: 'Switchgear' },
     { id: 'battery-room', name: 'Battery Room' },
   ],
 }
@@ -89,6 +90,23 @@ function makeEmptyRow(lineId, locationId, uid) {
     lastUpdated: serverTimestamp(),
     isDeleted: false,
   }
+}
+
+/**
+ * Extract Google Drive file ID from various URL formats:
+ *  - https://drive.google.com/file/d/FILE_ID/view?usp=sharing
+ *  - https://drive.google.com/open?id=FILE_ID
+ *  - https://drive.google.com/uc?id=FILE_ID&export=view
+ */
+function extractDriveFileId(url) {
+  if (!url || typeof url !== 'string') return null
+  // Match /file/d/FILE_ID pattern
+  let match = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/)
+  if (match) return match[1]
+  // Match ?id=FILE_ID or &id=FILE_ID
+  match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/)
+  if (match) return match[1]
+  return null
 }
 
 /* ------------------------------------------------------------------ */
@@ -134,7 +152,7 @@ function SyncStatusBar() {
 /* ------------------------------------------------------------------ */
 /*  EditableCell — the core inline-edit component                     */
 /* ------------------------------------------------------------------ */
-function EditableCell({ value, field, rowId, type, canEdit, onSave }) {
+function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey }) {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState('')
   const [showSaved, setShowSaved] = useState(false)
@@ -202,11 +220,13 @@ function EditableCell({ value, field, rowId, type, canEdit, onSave }) {
     }
   }
 
-  // --- Render: Edit mode ---
+  // --- Determine content based on mode ---
+  let content
+
   if (isEditing) {
     if (type === 'select') {
       const options = COLUMNS.find(c => c.key === field)?.options || []
-      return (
+      content = (
         <select
           ref={inputRef}
           className="grid-cell-select"
@@ -234,53 +254,51 @@ function EditableCell({ value, field, rowId, type, canEdit, onSave }) {
           ))}
         </select>
       )
+    } else {
+      content = (
+        <>
+          <input
+            ref={inputRef}
+            type={type === 'number' ? 'number' : 'text'}
+            className="grid-cell-input"
+            style={wide ? {
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              height: '40px',
+              minWidth: '320px',
+              width: `max(100%, ${Math.max(320, (editValue?.length || 0) * 8 + 40)}px)`,
+              zIndex: 10,
+              boxShadow: 'rgba(0,0,0,0.15) 0 4px 16px, rgba(0,0,0,0.08) 0 1px 4px',
+              borderRadius: '2px',
+              background: '#ffffff',
+            } : undefined}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={handleKeyDown}
+          />
+          {showSaved && <SaveIndicator />}
+        </>
+      )
     }
-
-    return (
-      <>
-        <input
-          ref={inputRef}
-          type={type === 'number' ? 'number' : 'text'}
-          className="grid-cell-input"
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onBlur={commitEdit}
-          onKeyDown={handleKeyDown}
-        />
-        {showSaved && <SaveIndicator />}
-      </>
+  } else if (type === 'foto' && displayValue) {
+    // Foto column: render as link with hover/tap preview
+    content = (
+      <FotoDisplay
+        url={displayValue}
+        canEdit={canEdit}
+        onStartEdit={startEdit}
+        showSaved={showSaved}
+      />
     )
-  }
-
-  // --- Render: Display mode ---
-
-  // Foto column: render as link
-  if (type === 'foto' && displayValue) {
-    return (
-      <div
-        className={`grid-cell-display ${!canEdit ? 'grid-cell-display--readonly' : ''}`}
-        onClick={canEdit ? startEdit : undefined}
-      >
-        <a
-          href={displayValue}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="grid-cell-link"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {displayValue}
-        </a>
-        {showSaved && <SaveIndicator />}
-      </div>
-    )
-  }
-
-  // Status column: render as chip
-  if (type === 'select' && displayValue) {
+  } else if (type === 'select' && displayValue) {
+    // Status column: render as chip
     const chipClass = displayValue === 'Existing' ? 'chip-existing' : displayValue === 'Tidak Aktif' ? 'chip-inactive' : ''
-    return (
+    content = (
       <div
         className={`grid-cell-display ${!canEdit ? 'grid-cell-display--readonly' : ''}`}
+        title={String(displayValue)}
         onClick={canEdit ? startEdit : undefined}
       >
         {chipClass ? (
@@ -291,17 +309,27 @@ function EditableCell({ value, field, rowId, type, canEdit, onSave }) {
         {showSaved && <SaveIndicator />}
       </div>
     )
+  } else {
+    // Default: text/number display
+    content = (
+      <div
+        className={`grid-cell-display ${!canEdit ? 'grid-cell-display--readonly' : ''} ${displayValue == null ? 'grid-cell-display--empty' : ''}`}
+        title={displayValue != null ? String(displayValue) : undefined}
+        onClick={canEdit ? startEdit : undefined}
+      >
+        <span>{displayValue != null ? displayValue : '—'}</span>
+        {showSaved && <SaveIndicator />}
+      </div>
+    )
   }
 
-  // Default: text/number display
+  // --- Render: td wrapper ---
+  // overflow:visible needed for: wide columns in edit mode, and foto popover
+  const needsOverflow = (isEditing && wide) || (type === 'foto' && displayValue)
   return (
-    <div
-      className={`grid-cell-display ${!canEdit ? 'grid-cell-display--readonly' : ''} ${displayValue == null ? 'grid-cell-display--empty' : ''}`}
-      onClick={canEdit ? startEdit : undefined}
-    >
-      <span>{displayValue != null ? displayValue : '—'}</span>
-      {showSaved && <SaveIndicator />}
-    </div>
+    <td style={needsOverflow ? { overflow: 'visible' } : undefined}>
+      {content}
+    </td>
   )
 }
 
@@ -315,6 +343,188 @@ function SaveIndicator() {
         <path d="M20 6L9 17l-5-5" />
       </svg>
     </span>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  FotoDisplay — hover-preview (desktop) + tap-preview (mobile)       */
+/*  per {component.data-grid.photo-link-cell} in design system         */
+/* ------------------------------------------------------------------ */
+function FotoDisplay({ url, canEdit, onStartEdit, showSaved }) {
+  const [showPopover, setShowPopover] = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [imgError, setImgError] = useState(false)
+  const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 })
+  const popoverTimer = useRef(null)
+  const cellRef = useRef(null)
+
+  const fileId = extractDriveFileId(url)
+  const thumbnailUrl = fileId ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w800` : null
+
+  // Detect hover-capable device (desktop vs touch-only)
+  const hasHover = typeof window !== 'undefined'
+    && window.matchMedia('(hover: hover)').matches
+
+  // Reset img error when URL changes
+  useEffect(() => { setImgError(false) }, [url])
+
+  // Cleanup timer
+  useEffect(() => {
+    return () => { if (popoverTimer.current) clearTimeout(popoverTimer.current) }
+  }, [])
+
+  function handleMouseEnter() {
+    if (!hasHover || !thumbnailUrl) return
+    // Calculate position from the cell element
+    if (cellRef.current) {
+      const rect = cellRef.current.getBoundingClientRect()
+      setPopoverPos({
+        top: rect.bottom + 4,
+        left: rect.left,
+      })
+    }
+    popoverTimer.current = setTimeout(() => setShowPopover(true), 250)
+  }
+
+  function handleMouseLeave() {
+    if (popoverTimer.current) clearTimeout(popoverTimer.current)
+    setShowPopover(false)
+  }
+
+  function handleLinkClick(e) {
+    // On touch devices: first tap opens modal, not Drive
+    if (!hasHover && thumbnailUrl) {
+      e.preventDefault()
+      e.stopPropagation()
+      setShowModal(true)
+      return
+    }
+    // On desktop: normal link behavior (open in new tab)
+    e.stopPropagation()
+  }
+
+  const previewContent = imgError ? (
+    <div className="foto-preview-error">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+        <circle cx="8.5" cy="8.5" r="1.5" />
+        <path d="m21 15-5-5L5 21" />
+      </svg>
+      <span>Preview tidak tersedia — pastikan file di-share publik</span>
+    </div>
+  ) : (
+    <img
+      src={thumbnailUrl}
+      alt="Preview"
+      className="foto-preview-img"
+      onError={() => setImgError(true)}
+    />
+  )
+
+  return (
+    <div
+      ref={cellRef}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      style={{ height: '100%' }}
+    >
+      {/* Display content — inside overflow:hidden for text truncation */}
+      <div
+        className={`grid-cell-display ${!canEdit ? 'grid-cell-display--readonly' : ''}`}
+        title={String(url)}
+        onClick={canEdit ? onStartEdit : undefined}
+      >
+        {/* Link text */}
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="grid-cell-link"
+          onClick={handleLinkClick}
+        >
+          {url}
+        </a>
+
+        {/* Separate "open in Drive" icon for mobile (always visible on touch) */}
+        {!hasHover && (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="foto-external-icon"
+            onClick={(e) => e.stopPropagation()}
+            title="Buka di Google Drive"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
+          </a>
+        )}
+
+        {showSaved && <SaveIndicator />}
+      </div>
+
+      {/* Desktop hover popover — rendered via Portal to escape overflow clipping */}
+      {showPopover && thumbnailUrl && createPortal(
+        <div
+          className="foto-popover"
+          style={{
+            position: 'fixed',
+            top: `${popoverPos.top}px`,
+            left: `${popoverPos.left}px`,
+          }}
+        >
+          {previewContent}
+        </div>,
+        document.body
+      )}
+
+      {/* Mobile tap modal — rendered via Portal for consistency */}
+      {showModal && thumbnailUrl && createPortal(
+        <div className="foto-modal-backdrop" onClick={(e) => { e.stopPropagation(); setShowModal(false) }}>
+          <div className="foto-modal" onClick={(e) => e.stopPropagation()}>
+            {/* Close button */}
+            <button className="foto-modal-close" onClick={() => setShowModal(false)}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+
+            {previewContent}
+
+            {/* Actions */}
+            <div className="foto-modal-actions">
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary"
+                style={{ fontSize: '13px', padding: '6px 14px', gap: '6px' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+                Buka di Drive
+              </a>
+              <button
+                className="btn-secondary"
+                style={{ fontSize: '13px', padding: '6px 14px' }}
+                onClick={() => setShowModal(false)}
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
   )
 }
 
@@ -634,16 +844,16 @@ export default function LinePage() {
                       </div>
                     </td>
                     {COLUMNS.map((col) => (
-                      <td key={col.key}>
-                        <EditableCell
-                          value={row[col.key]}
-                          field={col.key}
-                          rowId={row.id}
-                          type={col.type}
-                          canEdit={canEdit}
-                          onSave={handleSaveCell}
-                        />
-                      </td>
+                      <EditableCell
+                        key={col.key}
+                        value={row[col.key]}
+                        field={col.key}
+                        rowId={row.id}
+                        type={col.type}
+                        canEdit={canEdit}
+                        onSave={handleSaveCell}
+                        wide={col.wide}
+                      />
                     ))}
                   </tr>
                 ))}

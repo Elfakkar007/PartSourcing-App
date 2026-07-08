@@ -56,7 +56,9 @@
 }
 
 /* --- Base resets --- */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -306,19 +308,41 @@ body {
 
 /* --- Animations --- */
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes saveFadeInOut {
-  0% { opacity: 0; transform: scale(0.8); }
-  15% { opacity: 1; transform: scale(1); }
-  75% { opacity: 1; }
-  100% { opacity: 0; }
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+
+  15% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  75% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
 }
 
 .animate-spin {
@@ -490,11 +514,11 @@ body {
 .grid-cell-link {
   color: #1a73e8;
   text-decoration: none;
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
-  display: inline-block;
 }
 
 .grid-cell-link:hover {
@@ -547,4 +571,109 @@ body {
   font-size: 13px;
   font-weight: 500;
   border-bottom: 1px solid #dadce0;
+}
+
+/* --- Foto Preview: Hover Popover (desktop) --- */
+.foto-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  max-width: 420px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: rgba(0, 0, 0, 0.12) 0 4px 16px;
+  padding: 8px;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.foto-preview-img {
+  width: 100%;
+  max-height: 380px;
+  border-radius: 4px;
+  object-fit: cover;
+  display: block;
+}
+
+.foto-preview-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  color: #5f6368;
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* --- Foto Preview: Tap Modal (mobile) --- */
+.foto-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.foto-modal {
+  position: relative;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 16px;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: rgba(0, 0, 0, 0.12) 0 4px 16px;
+}
+
+.foto-modal .foto-preview-img {
+  max-height: 420px;
+}
+
+.foto-modal .foto-preview-error {
+  padding: 24px 16px;
+}
+
+.foto-modal-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #5f6368;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.15s;
+}
+
+.foto-modal-close:hover {
+  background: #f1f3f4;
+}
+
+.foto-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+/* --- Foto: External link icon (mobile) --- */
+.foto-external-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  color: #1a73e8;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.foto-external-icon:hover {
+  color: #174ea6;
 }
