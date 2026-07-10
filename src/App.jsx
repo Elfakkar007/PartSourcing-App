@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { ToastProvider } from './contexts/ToastContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import LinePage from './pages/LinePage'
@@ -17,34 +18,36 @@ function PublicRoute({ children }) {
 function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route
-            path="/login"
-            element={
-              <PublicRoute>
-                <Login />
-              </PublicRoute>
-            }
-          />
-          <Route
-            path="/"
-            element={
-              <PrivateRoute>
-                <Dashboard />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/line/:lineId"
-            element={
-              <PrivateRoute>
-                <LinePage />
-              </PrivateRoute>
-            }
-          />
-        </Routes>
-      </AuthProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <Routes>
+            <Route
+              path="/login"
+              element={
+                <PublicRoute>
+                  <Login />
+                </PublicRoute>
+              }
+            />
+            <Route
+              path="/"
+              element={
+                <PrivateRoute>
+                  <Dashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/line/:lineId"
+              element={
+                <PrivateRoute>
+                  <LinePage />
+                </PrivateRoute>
+              }
+            />
+          </Routes>
+        </AuthProvider>
+      </ToastProvider>
     </BrowserRouter>
   )
 }

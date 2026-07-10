@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useToast } from '../contexts/ToastContext'
 import {
   collection, query, where, onSnapshot,
   addDoc, updateDoc, doc, serverTimestamp, writeBatch
@@ -212,7 +213,7 @@ function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey
     }).catch(err => {
       console.error(`Failed to save ${field}:`, err)
       if (err.code === 'permission-denied') {
-        alert('Permission denied: Anda tidak memiliki akses untuk mengedit data Line ini.')
+        addToast('Permission denied: Anda tidak memiliki akses untuk mengedit data Line ini.', 'error')
       }
     })
   }
@@ -248,7 +249,7 @@ function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey
             }).catch((err) => {
               console.error(`Failed to save ${field}:`, err)
               if (err.code === 'permission-denied') {
-                alert('Permission denied: Anda tidak memiliki akses untuk mengedit data Line ini.')
+                addToast('Permission denied: Anda tidak memiliki akses untuk mengedit data Line ini.', 'error')
               }
             })
           }}
@@ -661,8 +662,258 @@ function BulkAddModal({ locationName, onConfirm, onCancel }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  ColumnFilterDropdown — per-column filter popover                   */
+/*  BulkFillModal — dialog for mass updating a specific column        */
 /* ------------------------------------------------------------------ */
+function BulkFillModal({ count, columns, onConfirm, onCancel }) {
+  const fillableColumns = columns.filter(c => c.key !== 'foto')
+  const [selectedCol, setSelectedCol] = useState(fillableColumns[0]?.key || '')
+  const [value, setValue] = useState('')
+
+  const activeColDef = fillableColumns.find(c => c.key === selectedCol)
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    // For number fields, parse it if it's not empty, otherwise empty string
+    let finalValue = value
+    if (activeColDef?.type === 'number' && value !== '') {
+      finalValue = Number(value)
+    }
+    onConfirm(selectedCol, finalValue)
+  }
+
+  return createPortal(
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <h3 className="modal-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+          </svg>
+          Isi Kolom Massal
+        </h3>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <p style={{ marginBottom: '8px' }}>
+              Anda akan mengisi kolom untuk <strong>{count} baris</strong> terpilih.
+            </p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 500, color: '#1f2328' }}>Pilih Kolom:</label>
+              <select
+                value={selectedCol}
+                onChange={(e) => { setSelectedCol(e.target.value); setValue('') }}
+                style={{
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--color-border)',
+                  fontSize: '13px',
+                  background: 'var(--color-canvas)'
+                }}
+              >
+                {fillableColumns.map(c => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 500, color: '#1f2328' }}>Nilai Baru:</label>
+              {activeColDef?.type === 'select' ? (
+                <select
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  style={{
+                    padding: '6px 8px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--color-border)',
+                    fontSize: '13px',
+                    background: 'var(--color-canvas)'
+                  }}
+                >
+                  {activeColDef.options.map(opt => (
+                    <option key={opt} value={opt}>{opt || '(Kosong)'}</option>
+                  ))}
+                </select>
+              ) : activeColDef?.type === 'number' ? (
+                <input
+                  type="number"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  style={{
+                    padding: '6px 8px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--color-border)',
+                    fontSize: '13px',
+                    background: 'var(--color-canvas)'
+                  }}
+                  placeholder="Masukkan angka..."
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  style={{
+                    padding: '6px 8px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--color-border)',
+                    fontSize: '13px',
+                    background: 'var(--color-canvas)'
+                  }}
+                  placeholder="Masukkan teks..."
+                />
+              )}
+            </div>
+            
+            <div style={{ padding: '8px', background: 'var(--color-surface-subtle)', borderRadius: '4px', fontSize: '12px', color: 'var(--color-ink-muted)', marginTop: '4px' }}>
+              Akan mengisi kolom <strong>{activeColDef?.label}</strong> dengan nilai <strong>{value || '(Kosong)'}</strong> ke {count} baris terpilih.
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-secondary" onClick={onCancel}>Batal</button>
+            <button type="submit" className="btn-primary">Konfirmasi</button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  FindReplaceModal — dialog for finding and replacing text           */
+/* ------------------------------------------------------------------ */
+function FindReplaceModal({ rows, columns, onConfirm, onCancel }) {
+  const textColumns = columns.filter(c => c.type === 'text')
+  const [selectedCol, setSelectedCol] = useState(textColumns[0]?.key || '')
+  const [findText, setFindText] = useState('')
+  const [replaceText, setReplaceText] = useState('')
+
+  // Live preview logic
+  const matches = useMemo(() => {
+    if (!findText) return []
+    const lowerFindText = findText.toLowerCase()
+    
+    return rows.map(row => {
+      const val = row[selectedCol]
+      if (typeof val === 'string' && val.toLowerCase().includes(lowerFindText)) {
+        // Case-insensitive replace
+        const regex = new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+        const newVal = val.replace(regex, replaceText)
+        return {
+          id: row.id,
+          subMachine: row.subMachine || '(Tanpa Sub-Machine)',
+          oldVal: val,
+          newVal: newVal
+        }
+      }
+      return null
+    }).filter(Boolean)
+  }, [rows, selectedCol, findText, replaceText])
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    if (matches.length > 0) {
+      onConfirm(selectedCol, findText, replaceText, matches)
+    }
+  }
+
+  return createPortal(
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal-content" style={{ maxWidth: '600px', width: '90%' }} onClick={(e) => e.stopPropagation()}>
+        <h3 className="modal-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          Cari & Ganti
+        </h3>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '140px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 500, color: '#1f2328' }}>Kolom:</label>
+                <select
+                  value={selectedCol}
+                  onChange={(e) => setSelectedCol(e.target.value)}
+                  style={{ padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--color-border)', fontSize: '13px', background: 'var(--color-canvas)' }}
+                >
+                  {textColumns.map(c => (
+                    <option key={c.key} value={c.key}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '140px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 500, color: '#1f2328' }}>Cari:</label>
+                <input
+                  type="text"
+                  value={findText}
+                  onChange={(e) => setFindText(e.target.value)}
+                  style={{ padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--color-border)', fontSize: '13px' }}
+                  placeholder="Teks yang dicari..."
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '140px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 500, color: '#1f2328' }}>Ganti dengan:</label>
+                <input
+                  type="text"
+                  value={replaceText}
+                  onChange={(e) => setReplaceText(e.target.value)}
+                  style={{ padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--color-border)', fontSize: '13px' }}
+                  placeholder="Kosongkan untuk hapus"
+                />
+              </div>
+            </div>
+            
+            {findText ? (
+              <div style={{ border: '1px solid var(--color-grid-line)', borderRadius: '4px', overflow: 'hidden', marginTop: '8px' }}>
+                <div style={{ background: 'var(--color-surface-subtle)', padding: '6px 12px', fontSize: '12px', fontWeight: 500, color: 'var(--color-ink-muted)', borderBottom: '1px solid var(--color-grid-line)' }}>
+                  Preview: {matches.length} baris cocok
+                </div>
+                <div style={{ maxHeight: '240px', overflowY: 'auto', background: '#fff' }}>
+                  {matches.length > 0 ? (
+                    <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                      <tbody>
+                        {matches.map(m => (
+                          <tr key={m.id} style={{ borderBottom: '1px solid var(--color-grid-line)' }}>
+                            <td style={{ padding: '6px 12px', color: '#5f6368', width: '30%', verticalAlign: 'top', wordBreak: 'break-word' }}>{m.subMachine}</td>
+                            <td style={{ padding: '6px 12px', color: '#d93025', textDecoration: 'line-through', verticalAlign: 'top', background: '#fce8e6', wordBreak: 'break-word' }}>{m.oldVal}</td>
+                            <td style={{ padding: '6px 12px', color: '#188038', verticalAlign: 'top', background: '#e6f4ea', wordBreak: 'break-word' }}>{m.newVal}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div style={{ padding: '16px', textAlign: 'center', color: '#5f6368', fontSize: '13px' }}>
+                      Tidak ditemukan kecocokan
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+               <div style={{ padding: '16px', textAlign: 'center', color: '#80868b', fontSize: '13px', border: '1px dashed var(--color-border)', borderRadius: '4px', marginTop: '8px' }}>
+                 Ketik teks pencarian untuk melihat preview.
+               </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-secondary" onClick={onCancel}>Batal</button>
+            <button type="submit" className="btn-primary" disabled={matches.length === 0}>
+              Ganti {matches.length > 0 ? `${matches.length} Kemunculan` : ''}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  ColumnFilterDropdown — per-column filter popover                   */
 const EMPTY_SENTINEL = '__EMPTY__'
 
 function ColumnFilterDropdown({ colKey, rows, currentFilter, onApply, onClose, anchorRect }) {
@@ -805,6 +1056,7 @@ export default function LinePage() {
   const { lineId } = useParams()
   const navigate = useNavigate()
   const { currentUser, userRole, logout } = useAuth()
+  const { addToast } = useToast()
 
   const locations = LOCATIONS_BY_LINE[lineId] || []
   const [activeLocation, setActiveLocation] = useState(locations[0]?.id || '')
@@ -814,6 +1066,8 @@ export default function LinePage() {
   const [selectedRows, setSelectedRows] = useState(new Set())
   const [showBulkAddModal, setShowBulkAddModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [showBulkFillModal, setShowBulkFillModal] = useState(false)
+  const [showFindReplaceModal, setShowFindReplaceModal] = useState(false)
   const [deleteTargetIds, setDeleteTargetIds] = useState([])
   // Column filters: { colKey: Set<checked values> } — null = no filter
   const [columnFilters, setColumnFilters] = useState({})
@@ -900,7 +1154,7 @@ export default function LinePage() {
     ).catch((err) => {
       console.error('Failed to add row:', err)
       if (err.code === 'permission-denied') {
-        alert('Permission denied: Anda tidak memiliki akses untuk menambah data di Line ini.')
+        addToast('Permission denied: Anda tidak memiliki akses untuk menambah data di Line ini.', 'error')
       }
     })
     setTimeout(() => setAddingRow(false), 300)
@@ -917,7 +1171,7 @@ export default function LinePage() {
     batch.commit().catch((err) => {
       console.error('Bulk add failed:', err)
       if (err.code === 'permission-denied') {
-        alert('Permission denied: Anda tidak memiliki akses untuk menambah data di Line ini.')
+        addToast('Permission denied: Anda tidak memiliki akses untuk menambah data di Line ini.', 'error')
       }
     })
     setShowBulkAddModal(false)
@@ -936,7 +1190,7 @@ export default function LinePage() {
     }).catch((err) => {
       console.error('Duplicate failed:', err)
       if (err.code === 'permission-denied') {
-        alert('Permission denied: Anda tidak memiliki akses untuk menduplikat data di Line ini.')
+        addToast('Permission denied: Anda tidak memiliki akses untuk menduplikat data di Line ini.', 'error')
       }
     })
   }
@@ -957,7 +1211,7 @@ export default function LinePage() {
     batch.commit().catch((err) => {
       console.error('Delete failed:', err)
       if (err.code === 'permission-denied') {
-        alert('Permission denied: Anda tidak memiliki akses untuk menghapus data di Line ini.')
+        addToast('Permission denied: Anda tidak memiliki akses untuk menghapus data di Line ini.', 'error')
       }
     })
     setSelectedRows(new Set())
@@ -1055,7 +1309,7 @@ export default function LinePage() {
     }).catch(err => {
       console.error('Failed to update flag:', err)
       if (err.code === 'permission-denied') {
-        alert('Permission denied: Anda tidak memiliki akses untuk mengedit data di Line ini.')
+        addToast('Permission denied: Anda tidak memiliki akses untuk mengedit data di Line ini.', 'error')
       }
     })
   }
@@ -1074,7 +1328,7 @@ export default function LinePage() {
     batch.commit().catch(err => {
       console.error('Failed to bulk update flag:', err)
       if (err.code === 'permission-denied') {
-        alert('Permission denied: Anda tidak memiliki akses untuk mengedit data di Line ini.')
+        addToast('Permission denied: Anda tidak memiliki akses untuk mengedit data di Line ini.', 'error')
       }
     })
   }
@@ -1083,6 +1337,50 @@ export default function LinePage() {
     const rect = e.currentTarget.getBoundingClientRect()
     setBulkFlagAnchorRect(rect)
     setOpenBulkFlagMenu(true)
+  }
+
+  function handleBulkFill(colKey, value) {
+    if (!canEdit || selectedRows.size === 0) return
+    const batch = writeBatch(db)
+    for (const rowId of selectedRows) {
+      const docRef = doc(db, 'components', rowId)
+      batch.update(docRef, {
+        [colKey]: value,
+        lastEditedBy: currentUser?.uid || '',
+        lastUpdated: serverTimestamp(),
+      })
+    }
+    batch.commit().then(() => {
+      addToast(`${selectedRows.size} baris berhasil diperbarui.`, 'success')
+    }).catch(err => {
+      console.error('Failed to bulk fill column:', err)
+      if (err.code === 'permission-denied') {
+        addToast('Permission denied: Anda tidak memiliki akses untuk mengedit data di Line ini.', 'error')
+      }
+    })
+    setShowBulkFillModal(false)
+  }
+
+  function handleFindReplace(colKey, findText, replaceText, matches) {
+    if (!canEdit || matches.length === 0) return
+    const batch = writeBatch(db)
+    for (const match of matches) {
+      const docRef = doc(db, 'components', match.id)
+      batch.update(docRef, {
+        [colKey]: match.newVal,
+        lastEditedBy: currentUser?.uid || '',
+        lastUpdated: serverTimestamp(),
+      })
+    }
+    batch.commit().then(() => {
+      addToast(`${matches.length} baris berhasil diperbarui.`, 'success')
+    }).catch(err => {
+      console.error('Failed to find and replace:', err)
+      if (err.code === 'permission-denied') {
+        addToast('Permission denied: Anda tidak memiliki akses untuk mengedit data di Line ini.', 'error')
+      }
+    })
+    setShowFindReplaceModal(false)
   }
 
   // Total table width for min-width
@@ -1246,6 +1544,19 @@ export default function LinePage() {
                 Tambah Sekaligus
               </button>
 
+              {/* Find and Replace */}
+              <button
+                className="btn-secondary"
+                style={{ padding: '6px 14px', fontSize: '13px', gap: '6px' }}
+                onClick={() => setShowFindReplaceModal(true)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                Cari & Ganti
+              </button>
+
               {/* Bulk delete — only visible when rows are selected */}
               {selectedRows.size > 0 && (
                 <button
@@ -1273,6 +1584,21 @@ export default function LinePage() {
                     <line x1="4" y1="22" x2="4" y2="15" />
                   </svg>
                   Tandai {selectedRows.size} Terpilih
+                </button>
+              )}
+
+              {/* Bulk fill column — only visible when rows are selected */}
+              {selectedRows.size > 0 && (
+                <button
+                  className="btn-secondary"
+                  style={{ padding: '6px 14px', fontSize: '13px', gap: '6px' }}
+                  onClick={() => setShowBulkFillModal(true)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                  </svg>
+                  Isi Kolom Massal
                 </button>
               )}
 
@@ -1491,6 +1817,22 @@ export default function LinePage() {
         )}
 
         {/* ---- Modals & Popovers ---- */}
+        {showFindReplaceModal && (
+          <FindReplaceModal
+            rows={rows}
+            columns={COLUMNS}
+            onConfirm={handleFindReplace}
+            onCancel={() => setShowFindReplaceModal(false)}
+          />
+        )}
+        {showBulkFillModal && (
+          <BulkFillModal
+            count={selectedRows.size}
+            columns={COLUMNS}
+            onConfirm={handleBulkFill}
+            onCancel={() => setShowBulkFillModal(false)}
+          />
+        )}
         {openBulkFlagMenu && (
           <RowFlagPopover
             currentFlag={null} // No current flag state for bulk actions

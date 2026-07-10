@@ -69,7 +69,21 @@
   - Jika dicentang + ber-flag, background flag tetap dipertahankan namun border-left biru tebal ditambahkan sebagai indikator seleksi aktif (mencegah bentrok visual `row-selected`).
   - Fitur Bulk Flag (Tandai Terpilih) di toolbar yang muncul saat baris dicentang, update data dilakukan secara kolektif dengan `writeBatch`.
   - updateDoc fire-and-forget.
-- ⬜ **Berikutnya (urutan prioritas dari admin project): Isi ke Baris Terpilih → Cari & Ganti**
+- ✅ **Isi Kolom Massal (Bulk Fill) — SELESAI**:
+  - Tombol baru "Isi Kolom Massal" muncul saat ada baris yang dicentang.
+  - Membuka `BulkFillModal` (via Portal) untuk memilih kolom (kecuali foto) dan memasukkan nilai baru (text/number/select menyesuaikan tipe kolom).
+  - Update dikerjakan secara batching (`writeBatch`) fire-and-forget.
+  - Baris tetap tercentang setelah update berhasil agar bisa diisi kolom lainnya.
+- ✅ **Peningkatan UI (Notifikasi Toast) — SELESAI**:
+  - Menggantikan `alert()` bawaan peramban (browser) yang memblokir dengan komponen Toast kustom (`ToastContext`).
+  - Toast muncul di sudut kanan bawah dengan warna dan ikon sesuai jenis pesannya (`success`, `error`, `info`) lalu menghilang otomatis (4 detik).
+  - Diimplementasikan pada aksi Bulk Fill, pengecekan hak akses (Permission Denied), dan proses asinkron lainnya agar interaksi tidak terpotong (non-blocking).
+- ✅ **Cari & Ganti (Find & Replace) — SELESAI**:
+  - Tombol baru "Cari & Ganti" di toolbar (berlaku untuk semua baris yang ter-load di lokasi aktif).
+  - Modal dinamis dengan pilihan filter eksklusif pada kolom bertipe `text` (mengecualikan tipe numerik, _select_, atau media/foto).
+  - Mengimplementasi fitur _live-preview_ pintar di dalam modal. Preview langsung merender kolom terkait yang mengalami kecocokan pencarian (*case-insensitive*) berserta perbandingan langsung (*old vs new value*).
+  - Mengandalkan update efisien _batch_ di fire-and-forget.
+- ⬜ **Berikutnya (urutan prioritas dari admin project): Log Aktivitas / Recycle Bin**
 
   - `handleDelete` belum menyimpan `deletedBy` (siapa yang menghapus) — perlu
     ditambahkan untuk akuntabilitas/log aktivitas
