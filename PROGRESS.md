@@ -83,6 +83,11 @@
   - Modal dinamis dengan pilihan filter eksklusif pada kolom bertipe `text` (mengecualikan tipe numerik, _select_, atau media/foto).
   - Mengimplementasi fitur _live-preview_ pintar di dalam modal. Preview langsung merender kolom terkait yang mengalami kecocokan pencarian (*case-insensitive*) berserta perbandingan langsung (*old vs new value*).
   - Mengandalkan update efisien _batch_ di fire-and-forget.
+- ✅ **Migrasi Data Location & Penambahan Lokasi Baru — SELESAI**:
+  - Mengonversi data lokasi dari object hardcode menjadi koleksi `locations` di Firestore.
+  - Implementasi *real-time listener* (`onSnapshot`) di `LinePage.jsx` untuk _rendering_ tab Locations yang dinamis.
+  - Skrip migrasi berhasil dieksekusi satu kali lewat `App.jsx` kemudian dibersihkan.
+  - Menambahkan tombol "Tambah Lokasi" dan *modal* yang aman dari masalah clipping, otomatis pindah _tab_ sesaat lokasi berhasil ditambahkan.
 - ⬜ **Berikutnya (urutan prioritas dari admin project): Log Aktivitas / Recycle Bin**
 
   - `handleDelete` belum menyimpan `deletedBy` (siapa yang menghapus) — perlu

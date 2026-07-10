@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import {
   collection, query, where, onSnapshot,
-  addDoc, updateDoc, doc, serverTimestamp, writeBatch
+  addDoc, updateDoc, doc, setDoc, serverTimestamp, writeBatch
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 
@@ -913,6 +913,46 @@ function FindReplaceModal({ rows, columns, onConfirm, onCancel }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  AddLocationModal — dialog for adding a new location                */
+/* ------------------------------------------------------------------ */
+function AddLocationModal({ onConfirm, onCancel }) {
+  const [locName, setLocName] = useState('')
+
+  return createPortal(
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <h3 className="modal-title">Tambah Lokasi Baru</h3>
+        <form onSubmit={(e) => onConfirm(e, locName)}>
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ fontSize: '13px', fontWeight: 500, color: '#1f2328' }}>Nama Lokasi:</label>
+            <input
+              type="text"
+              value={locName}
+              onChange={(e) => setLocName(e.target.value)}
+              style={{
+                padding: '6px 8px',
+                borderRadius: '4px',
+                border: '1px solid var(--color-border)',
+                fontSize: '13px',
+                width: '100%'
+              }}
+              placeholder="Misal: Storage Room"
+              autoFocus
+              required
+            />
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-secondary" onClick={onCancel}>Batal</button>
+            <button type="submit" className="btn-primary" disabled={!locName.trim()}>Tambah</button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /*  ColumnFilterDropdown — per-column filter popover                   */
 const EMPTY_SENTINEL = '__EMPTY__'
 
@@ -1058,7 +1098,7 @@ export default function LinePage() {
   const { currentUser, userRole, logout } = useAuth()
   const { addToast } = useToast()
 
-  const locations = LOCATIONS_BY_LINE[lineId] || []
+  const [locations, setLocations] = useState(LOCATIONS_BY_LINE[lineId] || [])
   const [activeLocation, setActiveLocation] = useState(locations[0]?.id || '')
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
@@ -1068,6 +1108,7 @@ export default function LinePage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showBulkFillModal, setShowBulkFillModal] = useState(false)
   const [showFindReplaceModal, setShowFindReplaceModal] = useState(false)
+  const [showAddLocationModal, setShowAddLocationModal] = useState(false)
   const [deleteTargetIds, setDeleteTargetIds] = useState([])
   // Column filters: { colKey: Set<checked values> } — null = no filter
   const [columnFilters, setColumnFilters] = useState({})
@@ -1126,12 +1167,44 @@ export default function LinePage() {
     return unsub
   }, [lineId, activeLocation])
 
-  // Reset active location when lineId changes
+  // ---- Locations real-time listener ----
   useEffect(() => {
-    const locs = LOCATIONS_BY_LINE[lineId] || []
-    if (locs.length > 0) {
-      setActiveLocation(locs[0].id)
+    if (!lineId) {
+      setLocations([])
+      return
     }
+    const qLoc = query(collection(db, 'locations'), where('line', '==', lineId))
+    const unsubLoc = onSnapshot(qLoc, (snapshot) => {
+      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
+      // Sort by createdAt ascending
+      data.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() || 0
+        const bTime = b.createdAt?.toMillis?.() || 0
+        return aTime - bTime
+      })
+
+      if (data.length > 0) {
+        setLocations(data)
+        setActiveLocation(prev => {
+          if (!data.find(l => l.id === prev)) {
+            return data[0].id
+          }
+          return prev
+        })
+      } else {
+        const fallback = LOCATIONS_BY_LINE[lineId] || []
+        setLocations(fallback)
+        setActiveLocation(prev => {
+          if (!fallback.find(l => l.id === prev) && fallback.length > 0) {
+            return fallback[0].id
+          }
+          return prev
+        })
+      }
+    }, (error) => {
+      console.error('Firestore onSnapshot error (locations):', error)
+    })
+    return unsubLoc
   }, [lineId])
 
   // ---- Save cell to Firestore ----
@@ -1383,6 +1456,32 @@ export default function LinePage() {
     setShowFindReplaceModal(false)
   }
 
+  async function handleAddLocation(e, locName) {
+    e.preventDefault()
+    if (!canEdit || !locName.trim()) return
+    const id = locName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    const docRef = doc(db, 'locations', id)
+    
+    try {
+      await setDoc(docRef, {
+        name: locName.trim(),
+        line: lineId,
+        createdBy: currentUser?.uid || '',
+        createdAt: serverTimestamp()
+      })
+      addToast('Location berhasil ditambahkan.', 'success')
+      setActiveLocation(id)
+      setShowAddLocationModal(false)
+    } catch (err) {
+      console.error('Failed to add location:', err)
+      if (err.code === 'permission-denied') {
+        addToast('Permission denied: Anda tidak memiliki akses untuk menambah lokasi di Line ini.', 'error')
+      } else {
+        addToast('Gagal menambah lokasi.', 'error')
+      }
+    }
+  }
+
   // Total table width for min-width
   const FLAG_WIDTH = 32
   const ROW_NUM_WIDTH = 40
@@ -1500,7 +1599,7 @@ export default function LinePage() {
         )}
 
         {/* ---- Location Tabs ---- */}
-        <div className="location-tabs" style={{ background: '#ffffff' }}>
+        <div className="location-tabs" style={{ background: '#ffffff', display: 'flex', alignItems: 'center' }}>
           {locations.map((loc) => (
             <button
               key={loc.id}
@@ -1510,6 +1609,29 @@ export default function LinePage() {
               {loc.name}
             </button>
           ))}
+          {canEdit && (
+            <button 
+              onClick={() => setShowAddLocationModal(true)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--color-secondary)',
+                fontWeight: 600,
+                fontSize: '13px',
+                padding: '8px 16px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Tambah Lokasi
+            </button>
+          )}
         </div>
 
         {/* ---- Toolbar ---- */}
@@ -1817,6 +1939,12 @@ export default function LinePage() {
         )}
 
         {/* ---- Modals & Popovers ---- */}
+        {showAddLocationModal && (
+          <AddLocationModal
+            onConfirm={handleAddLocation}
+            onCancel={() => setShowAddLocationModal(false)}
+          />
+        )}
         {showFindReplaceModal && (
           <FindReplaceModal
             rows={rows}
