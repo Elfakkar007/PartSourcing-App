@@ -1459,7 +1459,17 @@ export default function LinePage() {
   async function handleAddLocation(e, locName) {
     e.preventDefault()
     if (!canEdit || !locName.trim()) return
-    const id = locName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    
+    const trimmedName = locName.trim()
+    const id = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    
+    // Check duplicate
+    const exists = locations.find(l => l.name.toLowerCase() === trimmedName.toLowerCase() || l.id === id)
+    if (exists) {
+      addToast(`Lokasi '${trimmedName}' sudah ada di Line ini.`, 'error')
+      return
+    }
+
     const docRef = doc(db, 'locations', id)
     
     try {

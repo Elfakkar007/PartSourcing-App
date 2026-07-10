@@ -83,11 +83,25 @@
   - Modal dinamis dengan pilihan filter eksklusif pada kolom bertipe `text` (mengecualikan tipe numerik, _select_, atau media/foto).
   - Mengimplementasi fitur _live-preview_ pintar di dalam modal. Preview langsung merender kolom terkait yang mengalami kecocokan pencarian (*case-insensitive*) berserta perbandingan langsung (*old vs new value*).
   - Mengandalkan update efisien _batch_ di fire-and-forget.
-- ✅ **Migrasi Data Location & Penambahan Lokasi Baru — SELESAI**:
+- ✅ **Migrasi Data Location & Penambahan Lokasi Baru — SELESAI, dengan 1 bug
+  ditemukan & perlu diperbaiki**:
   - Mengonversi data lokasi dari object hardcode menjadi koleksi `locations` di Firestore.
   - Implementasi *real-time listener* (`onSnapshot`) di `LinePage.jsx` untuk _rendering_ tab Locations yang dinamis.
   - Skrip migrasi berhasil dieksekusi satu kali lewat `App.jsx` kemudian dibersihkan.
   - Menambahkan tombol "Tambah Lokasi" dan *modal* yang aman dari masalah clipping, otomatis pindah _tab_ sesaat lokasi berhasil ditambahkan.
+  - 🐛 **Bug ditemukan**: menambah Location dengan nama yang SUDAH ADA di Line
+    yang sama menampilkan pesan salah "Permission denied: Anda tidak memiliki
+    akses..." — padahal user sebenarnya PUNYA akses, cuma nama itu udah
+    dipakai. Root cause: ID Location dibuat dari slugify nama (misal
+    "Boiler Room" → `boiler-room`); karena ID itu sudah ada, `setDoc()`
+    diperlakukan Firestore sebagai "update" (dibatasi khusus admin di
+    Security Rules), bukan "create" (yang harusnya diizinkan untuk intern).
+    → **PERLU FIX**: cek duplikat nama (case-insensitive, dari data locations
+    yang sudah termuat di state) SEBELUM memanggil setDoc, tampilkan pesan
+    yang jelas ("Lokasi '[nama]' sudah ada di Line ini") lewat Toast, modal
+    tetap terbuka. Security Rules yang ada (update hanya admin) tetap
+    dipertahankan sebagai lapisan pengaman kedua untuk race condition.
+
 - ⬜ **Berikutnya (urutan prioritas dari admin project): Log Aktivitas / Recycle Bin**
 
   - `handleDelete` belum menyimpan `deletedBy` (siapa yang menghapus) — perlu
@@ -178,7 +192,18 @@
   dengan status real dari listener `onSnapshot` Firestore (`unavailable`
   error vs `metadata.fromCache`).
 
-- ✅ Warna chart kategori — palet netral, tidak lagi pakai warna semantik status.
+- **Pesan error "Permission denied" menyesatkan saat sebenarnya masalahnya
+  duplikat data**: menambah Location dengan nama yang sudah ada menampilkan
+  pesan seolah user tidak punya akses, padahal akar masalahnya adalah ID
+  hasil slugify sudah dipakai, membuat `setDoc()` diperlakukan sebagai
+  "update" (dibatasi admin) alih-alih "create" (diizinkan intern). →
+  **Pelajaran umum**: kalau sebuah operasi punya 2 kemungkinan alasan gagal
+  yang berbeda (izin vs data duplikat), jangan andalkan Security Rules
+  sebagai satu-satunya sumber pesan error ke user — cek kondisi yang lebih
+  spesifik (misal duplikat) di sisi aplikasi SEBELUM mengirim request,
+  supaya pesan yang ditampilkan akurat sesuai akar masalah sebenarnya.
+
+
 - ✅ Label role di header — akar masalah Firestore Rules, sudah diperbaiki.
 - ✅ Dashboard intern menampilkan semua Line — keputusan final, dengan highlight visual.
 - ✅ Cell widening untuk kolom teks panjang — diubah dari horizontal overlay menjadi auto-resize vertikal (`textarea`) untuk UX yang lebih baik.
