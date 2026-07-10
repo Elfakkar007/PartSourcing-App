@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
   collection, query, where, onSnapshot,
-  addDoc, updateDoc, doc, serverTimestamp
+  addDoc, updateDoc, doc, serverTimestamp, writeBatch
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 
@@ -89,6 +89,7 @@ function makeEmptyRow(lineId, locationId, uid) {
     createdAt: serverTimestamp(),
     lastUpdated: serverTimestamp(),
     isDeleted: false,
+    flag: null,
   }
 }
 
@@ -574,6 +575,230 @@ function FotoDisplay({ url, canEdit, onStartEdit, showSaved }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  ConfirmDeleteModal — confirmation dialog for delete operations     */
+/* ------------------------------------------------------------------ */
+function ConfirmDeleteModal({ count, locationName, onConfirm, onCancel }) {
+  return createPortal(
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <h3 className="modal-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d93025" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          Konfirmasi Hapus
+        </h3>
+        <div className="modal-body">
+          <p>
+            Anda akan menghapus <strong>{count} baris</strong> dari lokasi <strong>{locationName}</strong>.
+          </p>
+          <p style={{ fontSize: '12px', color: '#5f6368', marginTop: '8px' }}>
+            Data yang dihapus akan dipindahkan ke Recycle Bin dan bisa di-restore oleh Admin.
+          </p>
+        </div>
+        <div className="modal-footer">
+          <button className="btn-secondary" onClick={onCancel}>Batal</button>
+          <button className="btn-danger" onClick={onConfirm}>Hapus {count} Baris</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  BulkAddModal — input dialog for adding multiple rows at once       */
+/* ------------------------------------------------------------------ */
+function BulkAddModal({ locationName, onConfirm, onCancel }) {
+  const [count, setCount] = useState(5)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [])
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    const n = Math.max(1, Math.min(100, Math.floor(count)))
+    onConfirm(n)
+  }
+
+  return createPortal(
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <h3 className="modal-title">Tambah Baris Sekaligus</h3>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body">
+            <p>Tambahkan beberapa baris kosong ke lokasi <strong>{locationName}</strong>.</p>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
+              <span style={{ fontSize: '13px', color: '#1f2328', whiteSpace: 'nowrap' }}>Jumlah baris:</span>
+              <input
+                ref={inputRef}
+                type="number"
+                className="ds-input"
+                style={{ width: '80px' }}
+                value={count}
+                onChange={(e) => setCount(Number(e.target.value))}
+                min={1}
+                max={100}
+              />
+            </label>
+            <p style={{ fontSize: '12px', color: '#80868b', marginTop: '6px' }}>Maksimal 100 baris per sekali tambah.</p>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-secondary" onClick={onCancel}>Batal</button>
+            <button type="submit" className="btn-primary">Tambah {Math.max(1, Math.min(100, Math.floor(count || 0)))} Baris</button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  ColumnFilterDropdown — per-column filter popover                   */
+/* ------------------------------------------------------------------ */
+const EMPTY_SENTINEL = '__EMPTY__'
+
+function ColumnFilterDropdown({ colKey, rows, currentFilter, onApply, onClose, anchorRect }) {
+  // Gather unique values for this column
+  const uniqueValues = useMemo(() => {
+    const vals = new Set()
+    let hasEmpty = false
+    rows.forEach(row => {
+      const v = row[colKey]
+      if (v === null || v === undefined || v === '') {
+        hasEmpty = true
+      } else {
+        vals.add(String(v))
+      }
+    })
+    const sorted = [...vals].sort((a, b) => a.localeCompare(b, 'id'))
+    if (hasEmpty) sorted.unshift(EMPTY_SENTINEL)
+    return sorted
+  }, [rows, colKey])
+
+  // Local checked state — initialize from currentFilter or "all checked"
+  const [checked, setChecked] = useState(() => {
+    if (currentFilter) return new Set(currentFilter)
+    return new Set(uniqueValues)
+  })
+
+  function toggleValue(val) {
+    setChecked(prev => {
+      const next = new Set(prev)
+      if (next.has(val)) next.delete(val)
+      else next.add(val)
+      return next
+    })
+  }
+
+  function selectAll() { setChecked(new Set(uniqueValues)) }
+  function selectNone() { setChecked(new Set()) }
+
+  function handleApply() {
+    // If all are checked, remove filter for this column (= no filter)
+    if (checked.size === uniqueValues.length) {
+      onApply(colKey, null)
+    } else {
+      onApply(colKey, checked)
+    }
+    onClose()
+  }
+
+  // Position below the anchor
+  const top = anchorRect ? anchorRect.bottom + 4 : 0
+  const left = anchorRect ? Math.max(4, anchorRect.left - 60) : 0
+
+  return createPortal(
+    <>
+      <div className="filter-backdrop" onClick={() => onClose()} />
+      <div className="filter-dropdown" style={{ top: `${top}px`, left: `${left}px` }}>
+        <div className="filter-dropdown-header">
+          <button className="filter-link-btn" onClick={selectAll}>Pilih Semua</button>
+          <button className="filter-link-btn" onClick={selectNone}>Hapus Semua</button>
+        </div>
+        <div className="filter-dropdown-list">
+          {uniqueValues.length === 0 ? (
+            <p style={{ fontSize: '12px', color: '#80868b', padding: '8px 0', textAlign: 'center' }}>Tidak ada data</p>
+          ) : (
+            uniqueValues.map(val => (
+              <label key={val} className="filter-dropdown-item">
+                <input
+                  type="checkbox"
+                  checked={checked.has(val)}
+                  onChange={() => toggleValue(val)}
+                />
+                <span>{val === EMPTY_SENTINEL ? '(Kosong)' : val}</span>
+              </label>
+            ))
+          )}
+        </div>
+        <div className="filter-dropdown-footer">
+          <button className="btn-secondary" style={{ fontSize: '12px', padding: '4px 12px' }} onClick={() => onClose()}>Batal</button>
+          <button className="btn-primary" style={{ fontSize: '12px', padding: '4px 12px' }} onClick={handleApply}>Terapkan</button>
+        </div>
+      </div>
+    </>,
+    document.body
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  RowFlagPopover — popover to select row flag                        */
+/* ------------------------------------------------------------------ */
+function RowFlagPopover({ currentFlag, onSelect, onClose, anchorRect }) {
+  const top = anchorRect ? anchorRect.bottom + 4 : 0
+  const left = anchorRect ? Math.max(4, anchorRect.left - 20) : 0
+
+  return createPortal(
+    <>
+      <div className="filter-backdrop" onClick={onClose} />
+      <div className="filter-dropdown" style={{ top: `${top}px`, left: `${left}px`, minWidth: '160px' }}>
+        <div className="filter-dropdown-list" style={{ padding: '4px 0' }}>
+          <div 
+            className={`flag-menu-item ${currentFlag === null ? 'flag-menu-item--active' : ''}`}
+            onClick={() => { onSelect(null); onClose() }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
+              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+              <line x1="4" y1="22" x2="4" y2="15" />
+            </svg>
+            Tidak ada tanda
+          </div>
+          <div 
+            className={`flag-menu-item ${currentFlag === 'question' ? 'flag-menu-item--active' : ''}`}
+            onClick={() => { onSelect('question'); onClose() }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--color-warning)" stroke="var(--color-warning)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+              <line x1="4" y1="22" x2="4" y2="15" />
+            </svg>
+            Perlu Ditanyakan
+          </div>
+          <div 
+            className={`flag-menu-item ${currentFlag === 'skip' ? 'flag-menu-item--active' : ''}`}
+            onClick={() => { onSelect('skip'); onClose() }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--color-ink-muted)" stroke="var(--color-ink-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+              <line x1="4" y1="22" x2="4" y2="15" />
+            </svg>
+            Dilewati
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main LinePage Component                                           */
 /* ------------------------------------------------------------------ */
 export default function LinePage() {
@@ -586,6 +811,19 @@ export default function LinePage() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [addingRow, setAddingRow] = useState(false)
+  const [selectedRows, setSelectedRows] = useState(new Set())
+  const [showBulkAddModal, setShowBulkAddModal] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteTargetIds, setDeleteTargetIds] = useState([])
+  // Column filters: { colKey: Set<checked values> } — null = no filter
+  const [columnFilters, setColumnFilters] = useState({})
+  const [openFilterCol, setOpenFilterCol] = useState(null)
+  const [filterAnchorRect, setFilterAnchorRect] = useState(null)
+  // Row flag
+  const [openFlagRow, setOpenFlagRow] = useState(null)
+  const [flagAnchorRect, setFlagAnchorRect] = useState(null)
+  const [openBulkFlagMenu, setOpenBulkFlagMenu] = useState(false)
+  const [bulkFlagAnchorRect, setBulkFlagAnchorRect] = useState(null)
 
   // Permission check
   const userLineId = getUserLineId(currentUser?.assignedLine)
@@ -603,6 +841,12 @@ export default function LinePage() {
     }
 
     setLoading(true)
+    setSelectedRows(new Set())
+    setDeleteTargetIds([])
+    setColumnFilters({})
+    setOpenFilterCol(null)
+    setOpenFlagRow(null)
+    setOpenBulkFlagMenu(false)
     const q = query(
       collection(db, 'components'),
       where('line', '==', lineId),
@@ -662,6 +906,89 @@ export default function LinePage() {
     setTimeout(() => setAddingRow(false), 300)
   }
 
+  // ---- Bulk Add ----
+  function handleBulkAdd(count) {
+    if (!canEdit || count < 1) return
+    const batch = writeBatch(db)
+    for (let i = 0; i < count; i++) {
+      const newDocRef = doc(collection(db, 'components'))
+      batch.set(newDocRef, makeEmptyRow(lineId, activeLocation, currentUser?.uid))
+    }
+    batch.commit().catch((err) => {
+      console.error('Bulk add failed:', err)
+      if (err.code === 'permission-denied') {
+        alert('Permission denied: Anda tidak memiliki akses untuk menambah data di Line ini.')
+      }
+    })
+    setShowBulkAddModal(false)
+  }
+
+  // ---- Duplicate row ----
+  function handleDuplicate(row) {
+    if (!canEdit) return
+    const { id, createdAt, lastUpdated, ...data } = row
+    addDoc(collection(db, 'components'), {
+      ...data,
+      createdBy: currentUser?.uid || '',
+      lastEditedBy: currentUser?.uid || '',
+      createdAt: serverTimestamp(),
+      lastUpdated: serverTimestamp(),
+    }).catch((err) => {
+      console.error('Duplicate failed:', err)
+      if (err.code === 'permission-denied') {
+        alert('Permission denied: Anda tidak memiliki akses untuk menduplikat data di Line ini.')
+      }
+    })
+  }
+
+  // ---- Delete (soft delete) ----
+  function handleDelete() {
+    if (!canEdit || deleteTargetIds.length === 0) return
+    const batch = writeBatch(db)
+    deleteTargetIds.forEach((rowId) => {
+      const docRef = doc(db, 'components', rowId)
+      batch.update(docRef, {
+        isDeleted: true,
+        deletedAt: serverTimestamp(),
+        lastEditedBy: currentUser?.uid || '',
+        lastUpdated: serverTimestamp(),
+      })
+    })
+    batch.commit().catch((err) => {
+      console.error('Delete failed:', err)
+      if (err.code === 'permission-denied') {
+        alert('Permission denied: Anda tidak memiliki akses untuk menghapus data di Line ini.')
+      }
+    })
+    setSelectedRows(new Set())
+    setDeleteTargetIds([])
+    setShowDeleteModal(false)
+  }
+
+  // ---- Row selection ----
+  function toggleRowSelection(id) {
+    setSelectedRows(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (selectedRows.size === rows.length && rows.length > 0) {
+      setSelectedRows(new Set())
+    } else {
+      setSelectedRows(new Set(rows.map(r => r.id)))
+    }
+  }
+
+  // ---- Request delete (shows confirmation modal) ----
+  function requestDelete(ids) {
+    setDeleteTargetIds(ids)
+    setShowDeleteModal(true)
+  }
+
   async function handleLogout() {
     try {
       await logout()
@@ -676,9 +1003,94 @@ export default function LinePage() {
     intern: 'Internship',
   }
 
+  // ---- Column filter logic (client-side) ----
+  const hasActiveFilters = Object.keys(columnFilters).length > 0
+
+  const filteredRows = useMemo(() => {
+    if (!hasActiveFilters) return rows
+    return rows.filter(row => {
+      return Object.entries(columnFilters).every(([colKey, allowedValues]) => {
+        const rawVal = row[colKey]
+        const isEmpty = rawVal === null || rawVal === undefined || rawVal === ''
+        if (isEmpty) return allowedValues.has(EMPTY_SENTINEL)
+        return allowedValues.has(String(rawVal))
+      })
+    })
+  }, [rows, columnFilters, hasActiveFilters])
+
+  function handleFilterApply(colKey, checkedSet) {
+    setColumnFilters(prev => {
+      const next = { ...prev }
+      if (checkedSet === null) {
+        delete next[colKey]
+      } else {
+        next[colKey] = checkedSet
+      }
+      return next
+    })
+  }
+
+  function clearAllFilters() {
+    setColumnFilters({})
+  }
+
+  function openFilter(colKey, e) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    setFilterAnchorRect(rect)
+    setOpenFilterCol(colKey)
+  }
+
+  function openFlagMenu(rowId, e) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    setFlagAnchorRect(rect)
+    setOpenFlagRow(rowId)
+  }
+
+  function handleSetFlag(rowId, flagValue) {
+    const docRef = doc(db, 'components', rowId)
+    updateDoc(docRef, {
+      flag: flagValue,
+      lastEditedBy: currentUser?.uid || '',
+      lastUpdated: serverTimestamp(),
+    }).catch(err => {
+      console.error('Failed to update flag:', err)
+      if (err.code === 'permission-denied') {
+        alert('Permission denied: Anda tidak memiliki akses untuk mengedit data di Line ini.')
+      }
+    })
+  }
+
+  function handleBulkFlag(flagValue) {
+    if (!canEdit || selectedRows.size === 0) return
+    const batch = writeBatch(db)
+    for (const rowId of selectedRows) {
+      const docRef = doc(db, 'components', rowId)
+      batch.update(docRef, {
+        flag: flagValue,
+        lastEditedBy: currentUser?.uid || '',
+        lastUpdated: serverTimestamp(),
+      })
+    }
+    batch.commit().catch(err => {
+      console.error('Failed to bulk update flag:', err)
+      if (err.code === 'permission-denied') {
+        alert('Permission denied: Anda tidak memiliki akses untuk mengedit data di Line ini.')
+      }
+    })
+  }
+
+  function openBulkFlag(e) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    setBulkFlagAnchorRect(rect)
+    setOpenBulkFlagMenu(true)
+  }
+
   // Total table width for min-width
+  const FLAG_WIDTH = 32
   const ROW_NUM_WIDTH = 40
-  const totalWidth = ROW_NUM_WIDTH + COLUMNS.reduce((sum, c) => sum + c.width, 0)
+  const CHECKBOX_WIDTH = 40
+  const ACTION_WIDTH = 80
+  const totalWidth = (canEdit ? CHECKBOX_WIDTH : 0) + FLAG_WIDTH + ROW_NUM_WIDTH + COLUMNS.reduce((sum, c) => sum + c.width, 0) + (canEdit ? ACTION_WIDTH : 0)
 
   // ---- Unknown line ----
   if (!locations.length) {
@@ -805,28 +1217,99 @@ export default function LinePage() {
         {/* ---- Toolbar ---- */}
         <div className="grid-toolbar">
           {canEdit ? (
-            <button
-              className="btn-secondary"
-              style={{ padding: '6px 14px', fontSize: '13px', gap: '6px' }}
-              onClick={handleAddRow}
-              disabled={addingRow}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              {addingRow ? 'Menambahkan...' : 'Tambah Baris'}
-            </button>
-          ) : (
-            <span style={{ fontSize: '13px', color: '#5f6368' }}>
-              {activeLocationName} — {rows.length} baris
-            </span>
-          )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {/* Add single row */}
+              <button
+                className="btn-secondary"
+                style={{ padding: '6px 14px', fontSize: '13px', gap: '6px' }}
+                onClick={handleAddRow}
+                disabled={addingRow}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                {addingRow ? 'Menambahkan...' : 'Tambah Baris'}
+              </button>
 
-          {canEdit && (
-            <span style={{ fontSize: '12px', color: '#80868b', marginLeft: '8px' }}>
-              {activeLocationName} — {rows.length} baris
-            </span>
+              {/* Bulk add */}
+              <button
+                className="btn-secondary"
+                style={{ padding: '6px 14px', fontSize: '13px', gap: '6px' }}
+                onClick={() => setShowBulkAddModal(true)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <line x1="12" y1="8" x2="12" y2="16" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
+                </svg>
+                Tambah Sekaligus
+              </button>
+
+              {/* Bulk delete — only visible when rows are selected */}
+              {selectedRows.size > 0 && (
+                <button
+                  className="btn-danger"
+                  style={{ padding: '6px 14px', fontSize: '13px', gap: '6px' }}
+                  onClick={() => requestDelete([...selectedRows])}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                  Hapus {selectedRows.size} Terpilih
+                </button>
+              )}
+
+              {/* Bulk flag — only visible when rows are selected */}
+              {selectedRows.size > 0 && (
+                <button
+                  className="btn-secondary"
+                  style={{ padding: '6px 14px', fontSize: '13px', gap: '6px' }}
+                  onClick={openBulkFlag}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                    <line x1="4" y1="22" x2="4" y2="15" />
+                  </svg>
+                  Tandai {selectedRows.size} Terpilih
+                </button>
+              )}
+
+              {/* Clear all filters */}
+              {hasActiveFilters && (
+                <button
+                  className="btn-secondary"
+                  style={{ padding: '6px 14px', fontSize: '13px', gap: '6px', color: '#1a73e8' }}
+                  onClick={clearAllFilters}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                  Hapus Semua Filter
+                </button>
+              )}
+
+              <span style={{ fontSize: '12px', color: '#80868b', marginLeft: '4px' }}>
+                {activeLocationName} — {hasActiveFilters ? `${filteredRows.length} / ${rows.length}` : `${rows.length}`} baris
+              </span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '13px', color: '#5f6368' }}>
+                {activeLocationName} — {hasActiveFilters ? `${filteredRows.length} / ${rows.length}` : `${rows.length}`} baris
+              </span>
+              {hasActiveFilters && (
+                <button
+                  className="btn-secondary"
+                  style={{ padding: '4px 10px', fontSize: '12px', gap: '4px', color: '#1a73e8' }}
+                  onClick={clearAllFilters}
+                >
+                  Hapus Filter
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -869,17 +1352,81 @@ export default function LinePage() {
             <table className="data-grid" style={{ minWidth: `${totalWidth}px` }}>
               <thead>
                 <tr>
-                  <th className="row-num" style={{ width: `${ROW_NUM_WIDTH}px` }}>#</th>
-                  {COLUMNS.map((col) => (
-                    <th key={col.key} style={{ width: `${col.width}px` }}>
-                      {col.label}
+                  {canEdit && (
+                    <th className="grid-checkbox-col" style={{ width: `${CHECKBOX_WIDTH}px` }}>
+                      <input
+                        type="checkbox"
+                        checked={filteredRows.length > 0 && selectedRows.size === filteredRows.length}
+                        onChange={toggleSelectAll}
+                        title="Pilih semua"
+                      />
                     </th>
-                  ))}
+                  )}
+                  <th className="grid-flag-col" style={{ width: `${FLAG_WIDTH}px` }}></th>
+                  <th className="row-num" style={{ width: `${ROW_NUM_WIDTH}px` }}>#</th>
+                  {COLUMNS.map((col) => {
+                    const isActive = colKey => colKey in columnFilters
+                    return (
+                      <th key={col.key} style={{ width: `${col.width}px` }}>
+                        <div className="th-filter-wrapper">
+                          <span>{col.label}</span>
+                          <button
+                            className={`filter-icon-btn ${isActive(col.key) ? 'filter-icon-btn--active' : ''}`}
+                            title={`Filter ${col.label}`}
+                            onClick={(e) => openFilter(col.key, e)}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill={isActive(col.key) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                            </svg>
+                          </button>
+                        </div>
+                      </th>
+                    )
+                  })}
+                  {canEdit && (
+                    <th className="grid-action-col" style={{ width: `${ACTION_WIDTH}px` }}>Aksi</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, idx) => (
-                  <tr key={row.id}>
+                {filteredRows.map((row, idx) => {
+                  const isSelected = selectedRows.has(row.id)
+                  const hasFlag = !!row.flag
+                  
+                  let trClass = ''
+                  if (isSelected && hasFlag) trClass = `row-flag-${row.flag} row-selected-flagged`
+                  else if (isSelected) trClass = 'row-selected'
+                  else if (hasFlag) trClass = `row-flag-${row.flag}`
+
+                  return (
+                  <tr key={row.id} className={trClass}>
+                    {canEdit && (
+                      <td className="grid-checkbox-col">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleRowSelection(row.id)}
+                        />
+                      </td>
+                    )}
+                    <td className="grid-flag-col">
+                      <button 
+                        className={`row-flag-btn ${row.flag ? `row-flag-btn--${row.flag}` : ''}`}
+                        onClick={(e) => canEdit && openFlagMenu(row.id, e)}
+                        title={row.flag === 'question' ? 'Perlu Ditanyakan' : row.flag === 'skip' ? 'Dilewati' : canEdit ? 'Beri Tanda' : ''}
+                        disabled={!canEdit}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" 
+                          fill={row.flag ? "currentColor" : "none"} 
+                          stroke="currentColor" 
+                          strokeWidth="2" 
+                          strokeLinecap="round" strokeLinejoin="round"
+                        >
+                          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                          <line x1="4" y1="22" x2="4" y2="15" />
+                        </svg>
+                      </button>
+                    </td>
                     <td className="row-num">
                       <div className="grid-cell-display grid-cell-display--readonly" style={{ justifyContent: 'center', padding: '6px 4px' }}>
                         {idx + 1}
@@ -897,12 +1444,84 @@ export default function LinePage() {
                         wide={col.wide}
                       />
                     ))}
+                    {canEdit && (
+                      <td className="grid-action-col">
+                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                          <button
+                            className="action-btn"
+                            title="Duplikat baris"
+                            onClick={() => handleDuplicate(row)}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          </button>
+                          <button
+                            className="action-btn action-btn--danger"
+                            title="Hapus baris"
+                            onClick={() => requestDelete([row.id])}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           )}
         </div>
+
+        {/* ---- Column Filter Dropdown ---- */}
+        {openFilterCol && (
+          <ColumnFilterDropdown
+            colKey={openFilterCol}
+            rows={rows}
+            currentFilter={columnFilters[openFilterCol] || null}
+            onApply={handleFilterApply}
+            onClose={() => setOpenFilterCol(null)}
+            anchorRect={filterAnchorRect}
+          />
+        )}
+
+        {/* ---- Modals & Popovers ---- */}
+        {openBulkFlagMenu && (
+          <RowFlagPopover
+            currentFlag={null} // No current flag state for bulk actions
+            onSelect={(flagVal) => { handleBulkFlag(flagVal); setOpenBulkFlagMenu(false) }}
+            onClose={() => setOpenBulkFlagMenu(false)}
+            anchorRect={bulkFlagAnchorRect}
+          />
+        )}
+        {openFlagRow && (
+          <RowFlagPopover
+            currentFlag={rows.find(r => r.id === openFlagRow)?.flag || null}
+            onSelect={(flagVal) => handleSetFlag(openFlagRow, flagVal)}
+            onClose={() => setOpenFlagRow(null)}
+            anchorRect={flagAnchorRect}
+          />
+        )}
+        {showBulkAddModal && (
+          <BulkAddModal
+            locationName={activeLocationName}
+            onConfirm={handleBulkAdd}
+            onCancel={() => setShowBulkAddModal(false)}
+          />
+        )}
+        {showDeleteModal && (
+          <ConfirmDeleteModal
+            count={deleteTargetIds.length}
+            locationName={activeLocationName}
+            onConfirm={handleDelete}
+            onCancel={() => { setShowDeleteModal(false); setDeleteTargetIds([]) }}
+          />
+        )}
       </main>
     </div>
   )

@@ -27,16 +27,58 @@
   - Kolom Foto: hover-preview popup (desktop) & tap-preview modal (mobile) menampilkan
     gambar dari Google Drive — **sudah diperbaiki & berfungsi** (lihat Log Bug di bawah
     soal 2 masalah yang sempat menghambat ini)
-- 🔄 **Fix offline-first sedang diterapkan**: bug tombol "Tambah Baris" macet
-  permanen saat offline (root cause: `await addDoc()` menunggu ack server,
-  menggantung tanpa batas saat offline) — fix: hilangkan `await`, lepas state
-  loading segera, biarkan `onSnapshot` yang update UI begitu data masuk cache
-  lokal. Sync-status-bar juga diperbaiki agar tidak hanya mengandalkan
-  `navigator.onLine` (yang bisa salah karena mendeteksi adapter jaringan
-  virtual seperti VPN/WSL2/Docker, bukan konektivitas internet nyata) —
-  disilangkan dengan status koneksi Firestore (`onSnapshot` error
-  `unavailable` vs snapshot `metadata.fromCache`). **Perlu verifikasi ulang
-  di browser setelah kedua fix ini diterapkan** sebelum dianggap selesai.
+- ✅ **Fix offline-first — SELESAI & terverifikasi**: tombol "Tambah Baris"/simpan
+  cell tidak lagi macet saat offline (fire-and-forget pada `addDoc`/`updateDoc`,
+  tidak menunggu ack server untuk melepas state UI).
+- ⚠️ **Sync-status-bar — keterbatasan teknis Firestore SDK, DIPUTUSKAN tidak
+  dikejar lebih lanjut (known limitation, bukan blocker)**: `onSnapshot()`
+  (listener query berkelanjutan) TIDAK memanggil error callback setiap kali
+  gagal connect ke server — dia diam-diam retry di background terus-menerus,
+  berbeda dari `getDoc()` yang eksplisit melempar error `unavailable`. Ini
+  keterbatasan desain Firestore Web SDK, bukan bug di kode — sehingga status
+  "Online" kadang tidak akurat di kondisi jaringan tertentu (terutama saat ada
+  adapter jaringan virtual). **Yang penting dan sudah terverifikasi**: data
+  TETAP tersimpan benar saat offline (tidak hilang/macet), cuma indikator
+  visualnya yang kadang tidak 100% real-time akurat. Workaround (active ping
+  berkala pakai `getDoc({source:'server'})`) ada tapi belum diprioritaskan.
+- ✅ **Bulk Actions (Tambah Sekaligus, Bulk Delete, Duplikat Baris) — SELESAI
+  sebagian besar**, di halaman `/line/:lineId`:
+  - Checkbox per baris + "Pilih Semua", highlight hijau muda pada baris terpilih
+  - Tombol "Tambah Sekaligus" (modal input 1-100 baris) via `writeBatch`
+  - Tombol "Hapus X Terpilih" (kondisional muncul saat ada seleksi), dengan
+    `ConfirmDeleteModal` yang menyebutkan jumlah baris & nama lokasi (bukan OK
+    generik), soft-delete via `writeBatch` (`isDeleted: true`, `deletedAt`)
+  - Duplikat baris per row (icon aksi) via `addDoc`, menyalin semua field
+    kecuali `id`/`createdAt`/`lastUpdated`
+  - Semua operasi pakai pola fire-and-forget (pelajaran dari fix offline
+    diterapkan otomatis ke fitur baru ini)
+  - Modal (`ConfirmDeleteModal`, `BulkAddModal`) dirender via React Portal
+    (pelajaran dari fix popover Foto diterapkan lagi)
+  - `npx vite build` berhasil tanpa error
+  - **BELUM diverifikasi manual di browser** (bulk add/delete/duplikat +
+    permission check intern lintas-Line) — perlu dites sebelum lanjut
+- ✅ **Filter per Kolom — SELESAI & lolos testing**, di halaman `/line/:lineId`:
+  - Ikon funnel di tiap header kolom, dropdown checklist nilai unik (via Portal)
+  - Filter murni client-side (in-memory), tidak menyentuh Firestore
+  - AND logic antar kolom, OR logic antar value dalam 1 kolom (standar Excel
+    autofilter), tombol "Hapus semua filter" muncul saat ada filter aktif
+  - Indikator visual kolom yang sedang difilter (ikon funnel terisi solid)
+- ✅ **Flag "Perlu Ditanyakan"/"Dilewati" per Baris — SELESAI**: 
+  - Ikon bendera kecil di samping nomor baris. Popover 3 opsi (via Portal).
+  - Background baris menyesuaikan: kuning muda (question), abu-abu muda (skip).
+  - Jika dicentang + ber-flag, background flag tetap dipertahankan namun border-left biru tebal ditambahkan sebagai indikator seleksi aktif (mencegah bentrok visual `row-selected`).
+  - Fitur Bulk Flag (Tandai Terpilih) di toolbar yang muncul saat baris dicentang, update data dilakukan secara kolektif dengan `writeBatch`.
+  - updateDoc fire-and-forget.
+- ⬜ **Berikutnya (urutan prioritas dari admin project): Isi ke Baris Terpilih → Cari & Ganti**
+
+  - `handleDelete` belum menyimpan `deletedBy` (siapa yang menghapus) — perlu
+    ditambahkan untuk akuntabilitas/log aktivitas
+  - Belum ada halaman/panel admin untuk **melihat & memulihkan** baris yang
+    di-soft-delete (Recycle Bin view) — soft-delete-nya sendiri sudah jalan,
+    tapi belum ada cara restore dari UI
+  - Log aktivitas (siapa-apa-kapan secara umum, bukan cuma delete) belum ada
+    sama sekali sebagai fitur terpisah
+
 - ℹ️ **Keterbatasan cache offline yang perlu diketahui (bukan bug)**: jika
   sebuah Location belum pernah dibuka sekali pun saat online, datanya TIDAK
   akan muncul saat offline (cache Firestore bersifat per-query, bukan
