@@ -55,8 +55,9 @@
   - Modal (`ConfirmDeleteModal`, `BulkAddModal`) dirender via React Portal
     (pelajaran dari fix popover Foto diterapkan lagi)
   - `npx vite build` berhasil tanpa error
-  - **BELUM diverifikasi manual di browser** (bulk add/delete/duplikat +
-    permission check intern lintas-Line) — perlu dites sebelum lanjut
+  - ✅ **Sudah diverifikasi manual di browser — LOLOS SEMUA**: Tambah Sekaligus,
+    Bulk Delete (soft-delete), Duplikat Baris, dan permission check intern
+    lintas-Line untuk fitur bulk semuanya berfungsi sesuai harapan.
 - ✅ **Filter per Kolom — SELESAI & lolos testing**, di halaman `/line/:lineId`:
   - Ikon funnel di tiap header kolom, dropdown checklist nilai unik (via Portal)
   - Filter murni client-side (in-memory), tidak menyentuh Firestore
@@ -89,20 +90,46 @@
   - Implementasi *real-time listener* (`onSnapshot`) di `LinePage.jsx` untuk _rendering_ tab Locations yang dinamis.
   - Skrip migrasi berhasil dieksekusi satu kali lewat `App.jsx` kemudian dibersihkan.
   - Menambahkan tombol "Tambah Lokasi" dan *modal* yang aman dari masalah clipping, otomatis pindah _tab_ sesaat lokasi berhasil ditambahkan.
-  - 🐛 **Bug ditemukan**: menambah Location dengan nama yang SUDAH ADA di Line
-    yang sama menampilkan pesan salah "Permission denied: Anda tidak memiliki
-    akses..." — padahal user sebenarnya PUNYA akses, cuma nama itu udah
-    dipakai. Root cause: ID Location dibuat dari slugify nama (misal
-    "Boiler Room" → `boiler-room`); karena ID itu sudah ada, `setDoc()`
+  - ✅ **Bug SUDAH DIPERBAIKI**: menambah Location dengan nama yang SUDAH ADA
+    di Line yang sama sebelumnya menampilkan pesan salah "Permission denied:
+    Anda tidak memiliki akses..." — padahal user sebenarnya PUNYA akses, cuma
+    nama itu udah dipakai. Root cause: ID Location dibuat dari slugify nama
+    (misal "Boiler Room" → `boiler-room`); karena ID itu sudah ada, `setDoc()`
     diperlakukan Firestore sebagai "update" (dibatasi khusus admin di
     Security Rules), bukan "create" (yang harusnya diizinkan untuk intern).
-    → **PERLU FIX**: cek duplikat nama (case-insensitive, dari data locations
-    yang sudah termuat di state) SEBELUM memanggil setDoc, tampilkan pesan
-    yang jelas ("Lokasi '[nama]' sudah ada di Line ini") lewat Toast, modal
-    tetap terbuka. Security Rules yang ada (update hanya admin) tetap
-    dipertahankan sebagai lapisan pengaman kedua untuk race condition.
+    Fix: cek duplikat nama (case-insensitive) SEBELUM memanggil setDoc, pesan
+    Toast yang jelas ("Lokasi '[nama]' sudah ada di Line ini"), modal tetap
+    terbuka. Security Rules (update hanya admin) tetap dipertahankan sebagai
+    lapisan pengaman kedua untuk race condition.
 
-- ⬜ **Berikutnya (urutan prioritas dari admin project): Log Aktivitas / Recycle Bin**
+- ✅ **SELESAI & TERVERIFIKASI: Panel Konfigurasi Admin** — halaman
+  `/admin/settings` untuk mengatur kolom mana yang jadi syarat "baris selesai"
+  dan kolom mana yang ditampilkan/disembunyikan di grid, disimpan real-time
+  di `settings/gridConfig` Firestore (bukan hardcode).
+  - `AdminRoute` (App.jsx): cek `currentUser` + `userRole === 'admin'`,
+    redirect ke Dashboard kalau bukan admin — sudah diuji, intern akses
+    langsung via URL berhasil di-redirect.
+  - Tidak ada kolom yang dikunci — visibility & syarat-kelengkapan toggle
+    independen untuk semua 11 kolom (keputusan final, bukan hardcode subset).
+  - `isRowComplete(row)` di LinePage.jsx sudah dikonfirmasi LANGSUNG dari kode
+    (bukan cuma klaim walkthrough AI editor) membaca `gridConfig.requiredColumns`
+    dari state (via `onSnapshot` ke `settings/gridConfig`), BUKAN array
+    hardcode — perubahan setting admin langsung memengaruhi hasil kelengkapan
+    secara real-time. Pengecualian Qty (boleh kosong jika Status = "Tidak
+    Aktif") tetap dipertahankan, hardcode ke kolom qty spesifik (memang
+    seharusnya begitu karena aturan bisnisnya sendiri spesifik ke kolom ini).
+  - Diverifikasi manual pakai DevTools (cek class `incomplete-row` di elemen
+    nomor baris berubah real-time saat setting admin diubah, tanpa reload) —
+    LOLOS. Indikator visual (styling CSS) belum ditambahkan, tapi logika
+    intinya sudah pasti berfungsi.
+  - `visibleColumns` (filter dari `gridConfig.hiddenColumns`) sudah dikonsumsi
+    konsisten di header grid, cell, Modal Cari & Ganti, dan Modal Isi Massal.
+  - Security Rules `match /settings/{docId}` (read: isSignedIn, write: isAdmin)
+    sudah ditambahkan user ke Firebase Console.
+  - Bug bawaan dari fitur sebelumnya (kolom terkunci tidak konsisten) sempat
+    muncul di walkthrough pertama, sudah diperbaiki di walkthrough kedua.
+
+- 🔨 **SEDANG DIKERJAKAN SELANJUTNYA: Recycle Bin (view + restore) & Log Aktivitas**
 
   - `handleDelete` belum menyimpan `deletedBy` (siapa yang menghapus) — perlu
     ditambahkan untuk akuntabilitas/log aktivitas
@@ -128,7 +155,7 @@
 - ⬜ Belum: PWA/offline persistence penuh (masih pakai `enableIndexedDbPersistence`, ada
   warning deprecated — migrasi ke `FirestoreSettings.cache` belum urgent, catat sebagai
   utang teknis kecil)
-- ⬜ Belum: kolom konfigurasi oleh admin (syarat kelengkapan & visibility per kolom)
+- ✅ Selesai: kolom konfigurasi oleh admin (syarat kelengkapan & visibility per kolom), terverifikasi manual
 - ⬜ Belum: dijalankan checklist testing manual menyeluruh untuk fitur grid (lihat
   dokumen terpisah `Checklist_Testing_Grid.md`)
 

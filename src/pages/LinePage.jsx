@@ -13,7 +13,7 @@ import { db } from '../lib/firebase'
 /*  Column definitions — 11 columns per Spesifikasi §4                */
 /*  (Plant & Location excluded — they are navigation context)         */
 /* ------------------------------------------------------------------ */
-const COLUMNS = [
+export const COLUMNS = [
   { key: 'subMachine', label: 'Sub-Machine', width: 140, type: 'text', wide: true },
   { key: 'itemCode', label: 'Item Code', width: 120, type: 'text', wide: true },
   { key: 'category', label: 'Category', width: 120, type: 'text', wide: true },
@@ -1098,6 +1098,12 @@ export default function LinePage() {
   const { currentUser, userRole, logout } = useAuth()
   const { addToast } = useToast()
 
+  // ---- Grid Config State ----
+  const [gridConfig, setGridConfig] = useState({
+    requiredColumns: ['subMachine', 'category', 'part', 'spesification', 'status', 'qty', 'foto'],
+    hiddenColumns: []
+  })
+
   const [locations, setLocations] = useState(LOCATIONS_BY_LINE[lineId] || [])
   const [activeLocation, setActiveLocation] = useState(locations[0]?.id || '')
   const [rows, setRows] = useState([])
@@ -1119,6 +1125,7 @@ export default function LinePage() {
   const [flagAnchorRect, setFlagAnchorRect] = useState(null)
   const [openBulkFlagMenu, setOpenBulkFlagMenu] = useState(false)
   const [bulkFlagAnchorRect, setBulkFlagAnchorRect] = useState(null)
+  const [errorMsg, setErrorMsg] = useState(null)
 
   // Permission check
   const userLineId = getUserLineId(currentUser?.assignedLine)
@@ -1149,7 +1156,7 @@ export default function LinePage() {
       where('isDeleted', '==', false)
     )
 
-    const unsub = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
       // Sort by createdAt ascending (oldest first)
       data.sort((a, b) => {
@@ -1160,12 +1167,45 @@ export default function LinePage() {
       setRows(data)
       setLoading(false)
     }, (error) => {
-      console.error('Firestore onSnapshot error:', error)
+      console.error('Error fetching grid data:', error)
+      if (error.code === 'permission-denied') {
+        setErrorMsg('Anda tidak memiliki akses (Permission Denied).')
+      } else {
+        setErrorMsg(`Gagal memuat data: ${error.message}`)
+      }
       setLoading(false)
     })
 
-    return unsub
+    return () => unsubscribe()
   }, [lineId, activeLocation])
+
+  useEffect(() => {
+    const configRef = doc(db, 'settings', 'gridConfig')
+    const unsubConfig = onSnapshot(configRef, (snap) => {
+      if (snap.exists()) {
+        setGridConfig({
+          requiredColumns: snap.data().requiredColumns || ['subMachine', 'category', 'part', 'spesification', 'status', 'qty', 'foto'],
+          hiddenColumns: snap.data().hiddenColumns || []
+        })
+      }
+    })
+    return () => unsubConfig()
+  }, [])
+
+  // ---- Computed visible columns ----
+  const visibleColumns = useMemo(() => {
+    return COLUMNS.filter(c => !gridConfig.hiddenColumns.includes(c.key))
+  }, [gridConfig.hiddenColumns])
+
+  // ---- Row completion logic (for future dashboard/visual use) ----
+  const isRowComplete = useCallback((row) => {
+    return gridConfig.requiredColumns.every(colKey => {
+      // exception for Qty
+      if (colKey === 'qty' && row.status === 'Tidak Aktif') return true
+      const val = row[colKey]
+      return val !== null && val !== undefined && val !== ''
+    })
+  }, [gridConfig.requiredColumns])
 
   // ---- Locations real-time listener ----
   useEffect(() => {
@@ -1497,7 +1537,7 @@ export default function LinePage() {
   const ROW_NUM_WIDTH = 40
   const CHECKBOX_WIDTH = 40
   const ACTION_WIDTH = 80
-  const totalWidth = (canEdit ? CHECKBOX_WIDTH : 0) + FLAG_WIDTH + ROW_NUM_WIDTH + COLUMNS.reduce((sum, c) => sum + c.width, 0) + (canEdit ? ACTION_WIDTH : 0)
+  const totalWidth = (canEdit ? CHECKBOX_WIDTH : 0) + FLAG_WIDTH + ROW_NUM_WIDTH + visibleColumns.reduce((sum, c) => sum + c.width, 0) + (canEdit ? ACTION_WIDTH : 0)
 
   // ---- Unknown line ----
   if (!locations.length) {
@@ -1822,7 +1862,7 @@ export default function LinePage() {
                   )}
                   <th className="grid-flag-col" style={{ width: `${FLAG_WIDTH}px` }}></th>
                   <th className="row-num" style={{ width: `${ROW_NUM_WIDTH}px` }}>#</th>
-                  {COLUMNS.map((col) => {
+                  {visibleColumns.map((col) => {
                     const isActive = colKey => colKey in columnFilters
                     return (
                       <th key={col.key} style={{ width: `${col.width}px` }}>
@@ -1850,6 +1890,7 @@ export default function LinePage() {
                 {filteredRows.map((row, idx) => {
                   const isSelected = selectedRows.has(row.id)
                   const hasFlag = !!row.flag
+                  const isComplete = isRowComplete(row)
                   
                   let trClass = ''
                   if (isSelected && hasFlag) trClass = `row-flag-${row.flag} row-selected-flagged`
@@ -1886,11 +1927,11 @@ export default function LinePage() {
                       </button>
                     </td>
                     <td className="row-num">
-                      <div className="grid-cell-display grid-cell-display--readonly" style={{ justifyContent: 'center', padding: '6px 4px' }}>
+                      <div className={`grid-cell-display grid-cell-display--readonly ${!isComplete ? 'incomplete-row' : ''}`} style={{ justifyContent: 'center', padding: '6px 4px' }}>
                         {idx + 1}
                       </div>
                     </td>
-                    {COLUMNS.map((col) => (
+                    {visibleColumns.map((col) => (
                       <EditableCell
                         key={col.key}
                         value={row[col.key]}
@@ -1958,7 +1999,7 @@ export default function LinePage() {
         {showFindReplaceModal && (
           <FindReplaceModal
             rows={rows}
-            columns={COLUMNS}
+            columns={visibleColumns}
             onConfirm={handleFindReplace}
             onCancel={() => setShowFindReplaceModal(false)}
           />
@@ -1966,7 +2007,7 @@ export default function LinePage() {
         {showBulkFillModal && (
           <BulkFillModal
             count={selectedRows.size}
-            columns={COLUMNS}
+            columns={visibleColumns}
             onConfirm={handleBulkFill}
             onCancel={() => setShowBulkFillModal(false)}
           />

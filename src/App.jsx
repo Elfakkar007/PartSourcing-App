@@ -4,6 +4,14 @@ import { ToastProvider } from './contexts/ToastContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import LinePage from './pages/LinePage'
+import AdminSettings from './pages/AdminSettings'
+
+function AdminRoute({ children }) {
+  const { currentUser, userRole } = useAuth()
+  if (!currentUser) return <Navigate to="/login" />
+  if (userRole !== 'admin') return <Navigate to="/" />
+  return children
+}
 
 function PrivateRoute({ children }) {
   const { currentUser } = useAuth()
@@ -45,6 +53,15 @@ function App() {
                 </PrivateRoute>
               }
             />
+            <Route 
+              path="/admin/settings" 
+              element={
+                <AdminRoute>
+                  <AdminSettings />
+                </AdminRoute>
+              } 
+            />
+            <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </AuthProvider>
       </ToastProvider>
