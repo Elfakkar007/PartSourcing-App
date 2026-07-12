@@ -7,6 +7,7 @@ import LinePage from './pages/LinePage'
 import AdminSettings from './pages/AdminSettings'
 import RecycleBin from './pages/RecycleBin'
 import ActivityLog from './pages/ActivityLog'
+import ImportExcel from './pages/ImportExcel'
 
 function AdminRoute({ children }) {
   const { currentUser, userRole } = useAuth()
@@ -76,6 +77,14 @@ function App() {
               element={
                 <AdminRoute>
                   <ActivityLog />
+                </AdminRoute>
+              } 
+            />
+            <Route 
+              path="/admin/import" 
+              element={
+                <AdminRoute>
+                  <ImportExcel />
                 </AdminRoute>
               } 
             />

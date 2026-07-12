@@ -218,14 +218,82 @@
     PROGRESS.md dari akses AI editor (taruh di luar folder project atau
     `.gitignore`).
 
-- ⬜ **Backlog berikutnya (urutan final disepakati, belum dikerjakan sama sekali):**
-  1. Kolom Category → combobox/autocomplete (cegah typo "beraker" vs
-     "Breaker", tetap bisa tambah kategori baru bebas)
-  2. Export/Import Excel (fitur besar, lihat Spesifikasi §8: preview,
-     mapping kolom manual, validasi per baris, undo per batch, export
-     per-Line & gabungan 4 sheet) — akan jadi proses "reset bersih" data
-     testing/dummy yang ada sekarang, digantikan data asli dari Excel user
-  3. Sambungkan Dashboard ke data Firestore asli (SENGAJA diletakkan
+- ✅ **SELESAI & TERVERIFIKASI: Kolom Category → combobox/autocomplete**
+
+  - Pendekatan hemat-read: 1 dokumen agregat `settings/categoryList` berisi
+    array `values` (bukan scan seluruh koleksi `components` yang bisa
+    3500-4000+ baris — pertimbangan biaya Firestore free tier, karena user
+    tidak dapat budget dari perusahaan untuk project ini).
+  - `handleSaveCell`: setelah `updateDoc` field `category` berhasil, cek
+    dedup case-insensitive terhadap `categoryOptions` state; kalau kategori
+    baru, `arrayUnion` fire-and-forget ke `categoryList`. Real-time
+    `onSnapshot` ke dokumen itu men-supply `categoryOptions` ke semua Line
+    sekaligus (kategori baru dari Line manapun langsung jadi saran di Line
+    lain).
+  - Security Rules baru: `settings/categoryList` boleh ditulis siapapun yang
+    login (intern & admin), beda dari `settings/{docId}` umum yang tetap
+    admin-only untuk `gridConfig`.
+  - UI: `<input type="text" list="category-suggestions-${rowId}">` +
+    `<datalist>` HTML5 native — tetap bisa ketik bebas kategori baru
+    (taksonomi organik, tidak terkunci ke daftar).
+  - 🐛 **Bug sempat terjadi & sudah diperbaiki**: percobaan pertama
+    memasang datalist di branch fallback terakhir `EditableCell`, padahal
+    kolom `category` di `COLUMNS` bertipe `type: 'text'` (masuk branch
+    `<textarea>`, BUKAN fallback) — `<textarea>` juga tidak mendukung
+    atribut `list` sama sekali secara native. Dropdown tidak pernah muncul
+    di Chrome maupun Brave. Fix: tambah percabangan baru dicek berdasarkan
+    `field === 'category'` (bukan `type`), diletakkan SEBELUM cek
+    `type === 'text'`, pakai `<input>` single-line + datalist. Field
+    `type: 'text'` lain (Sub-Machine, Part, Spesification, dst) TETAP pakai
+    `<textarea>` seperti semula, tidak ikut berubah.
+
+- 🔄 **SEDANG DIKERJAKAN: Export/Import Excel** (fitur besar, lihat
+  Spesifikasi §8: preview, mapping kolom manual, validasi per baris, undo
+  per batch, export per-Line & gabungan 4 sheet) — akan jadi proses "reset
+  bersih" data testing/dummy yang ada sekarang, digantikan data asli dari
+  Excel user.
+
+  - ✅ **Tahap 1 (Upload → Parse 4 sheet → Preview mentah, TANPA sentuh
+    Firestore) — SELESAI & TERVERIFIKASI** di halaman `/admin/import`:
+    - Parsing SheetJS per sheet (1 sheet = 1 Line), preview 20 baris
+      teratas + indikator jumlah baris total per Line.
+    - 🐛 **Bug ditemukan & diperbaiki**: baris kosong (semua field
+      kosong/whitespace) TIDAK cuma muncul di ekor sheet, tapi NYEMPIL di
+      TENGAH data (dipakai sebagai pemisah visual antar kelompok part di
+      sheet sumber user) — filter awal yang cuma menyapu dari ekor sampai
+      baris berisi pertama tidak menangkap kasus ini. Fix: filter SETIAP
+      baris secara independen (bukan cuma trailing), cek darimanapun
+      posisinya di sheet.
+    - 🐛 **Bug ditemukan & diperbaiki (khusus sheet LINE 1)**: sheet ini
+      punya 17 kolom hantu tambahan ("Column 14" s/d "Column 30", 100%
+      kosong, sisa formatting Excel yang melebar ke kanan) — berbeda dari
+      3 sheet Line lain yang persis 13 kolom. Berisiko mengacaukan
+      auto-detect mapping kolom di Tahap 2 kalau tidak ditangani. Fix:
+      parser dibatasi HANYA ambil 13 kolom baku berdasar nama/urutan resmi,
+      kolom di luar itu diabaikan total.
+    - Diverifikasi silang oleh Claude terhadap file Excel asli
+      (`Uji_export.xlsx`) yang di-upload user — dihitung manual jumlah
+      baris data riil (bukan header, bukan baris kosong) per Line:
+      LINE 1 = 1134, LINE 2 = 1089, LINE 3 = 567, LINE 4 = 940. Setelah
+      fix, indikator jumlah baris di preview app **cocok persis** dengan
+      angka-angka ini — user konfirmasi lolos.
+    - **Pelajaran umum**: kalau AI editor bilang "sudah difilter" tapi
+      angka tidak berubah, jangan asumsikan filter-nya cuma kurang
+      dijalankan — cek dulu APAKAH filter itu menyasar pola data yang
+      benar (di kasus ini: kosong bisa di tengah, bukan cuma di ekor).
+      Baca file sumber asli langsung kalau tersedia, jangan cuma percaya
+      angka yang dilaporkan.
+
+  - ⬜ **Tahap 2 (SEDANG DIMULAI): Mapping kolom (auto-detect + bisa
+    disesuaikan manual) → validasi per baris → laporan error** — lihat
+    Spesifikasi §5 untuk aturan validasi (7 kolom wajib, pengecualian Qty
+    kalau Status = "Tidak Aktif").
+  - ⬜ Tahap 3: Commit — hapus permanen data lama (`components`+`locations`,
+    exclude `users`) → tulis data baru + auto-create Location → tandai
+    dengan `importBatchId`.
+  - ⬜ Tahap 4: Undo Import (hapus semua dokumen dengan `importBatchId`
+    tertentu).
+  2. Sambungkan Dashboard ke data Firestore asli (SENGAJA diletakkan
      PALING TERAKHIR, setelah Import — supaya Dashboard langsung dibangun
      & dites terhadap data final/asli, bukan data dummy yang toh akan
      disapu bersih; menghindari kerja & testing dua kali) — breakdown per
@@ -244,7 +312,7 @@
   Location di Line miliknya minimal sekali saat online (misal di awal shift)
   sebelum bekerja di titik dengan sinyal buruk/tanpa sinyal.
 
-- ⬜ Belum: export/import Excel
+- 🔄 Sedang dikerjakan: export/import Excel (Tahap 1 selesai & terverifikasi, Tahap 2 dimulai)
 - ⬜ Belum: dashboard chart & checklist publik (data masih placeholder, belum tersambung
   ke Firestore asli — masih dummy)
 - ⬜ Belum: PWA/offline persistence penuh (masih pakai `enableIndexedDbPersistence`, ada
