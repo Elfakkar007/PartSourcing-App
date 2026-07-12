@@ -379,8 +379,51 @@
       cookie browser) lalu disajikan dari domain sendiri. Kalau muncul
       lagi di sesi depan, JANGAN dikira bug baru dari kode aplikasi.
 
-  - ⬜ **Tahap 4 (BELUM DIKERJAKAN): Undo Import** — hapus semua dokumen
-    (`components` DAN `locations`) dengan `importBatchId` tertentu.
+  - ✅ **Tahap 4 (Undo Import) — SELESAI & TERVERIFIKASI, dengan 2 bug
+    ditemukan & diperbaiki sebelum lolos**:
+    - Scope: link "Undo" di toast sukses import (durasi diperpanjang jadi
+      15 detik), klik → `ConfirmDeleteModal` (angka X baris/Y lokasi
+      eksplisit, bukan OK generik) → hapus semua dokumen `components` DAN
+      `locations` dengan `importBatchId` yang sama, pakai `query()+where()`
+      (bukan getDocs semua+filter manual — hemat read quota), chunk 500
+      dokumen/batch via `writeBatch`. TIDAK ada halaman riwayat import
+      terpisah, TIDAK bisa undo batch lama kapan pun — cuma lewat toast
+      yang masih nempel di layar.
+    - 🐛 **Bug 1 (arsitektur) — Undo silently broken kalau pindah halaman**:
+      percobaan pertama menaruh state konfirmasi Undo (`showUndoConfirm`,
+      `undoStats`) di komponen `ImportExcel.jsx` yang page-local. Kalau
+      user pindah ke halaman lain (misal `/line/1` buat cek hasil import —
+      dikonfirmasi ini kebiasaan realistis) dalam window 15 detik sebelum
+      toast hilang, komponen unmount, klik tombol Undo di toast (masih
+      kelihatan nempel karena `ToastProvider` global) jadi TIDAK BEREFEK
+      APAPUN tanpa error apapun — silently broken. Fix: logic Undo
+      (state + eksekusi) dipindah ke context/provider baru
+      (`src/contexts/ImportUndoContext.jsx`) yang dipasang di root App
+      (`App.jsx`) — di dalam `<ToastProvider>`+`<AuthProvider>` (supaya
+      `useToast()`/`useAuth()` tetap bisa dipakai) tapi di LUAR
+      `<Routes>` (supaya tidak pernah unmount saat pindah halaman). Logic
+      hapus (`query+where`+`writeBatch` chunk 500) diekstrak jadi fungsi
+      murni tanpa dependency React di `src/lib/importUndo.js`. Diverifikasi
+      Claude baca kode asli ketiga file (`App.jsx`, `ImportUndoContext.jsx`,
+      `importUndo.js`) satu-satu terhadap 4 poin requirement — semua benar,
+      dan `ImportExcel.jsx` sudah bersih dari sisa state Undo lama.
+    - 🐛 **Bug 2 (regresi baru, ditemukan Claude dari baca kode, BUKAN dari
+      `npx vite build` yang "sukses")**: refactor Bug 1 di atas
+      meninggalkan `ImportExcel.jsx` memanggil `useNavigate()` (dipakai di
+      tombol "←" header) TANPA `import { useNavigate } from
+      'react-router-dom'` — bikin halaman `/admin/import` CRASH TOTAL saat
+      dibuka (`ReferenceError: useNavigate is not defined`), bahkan
+      sebelum sempat sampai step upload file. `npx vite build` tetap
+      lolos bersih karena ini `ReferenceError` runtime murni (bukan error
+      sintaks/import gagal resolve), bukan sesuatu yang ditangkap type-
+      checking Vite/esbuild biasa. Fix: tambah baris import yang hilang.
+      **Pelajaran umum (tambahan)**: `npx vite build` sukses TIDAK berarti
+      halaman bisa dirender — tetap wajib baca kode asli & testing manual
+      di browser, terutama setelah refactor yang menyentuh banyak import.
+    - Setelah kedua fix: user konfirmasi testing manual — import → pindah
+      halaman dalam window 15 detik → balik → klik Undo di toast → batch
+      terhapus dengan benar. **Fitur Import Excel (Tahap 1-4) resmi
+      TUNTAS seluruhnya.**
   2. Sambungkan Dashboard ke data Firestore asli (SENGAJA diletakkan
      PALING TERAKHIR, setelah Import — supaya Dashboard langsung dibangun
      & dites terhadap data final/asli, bukan data dummy yang toh akan
@@ -400,9 +443,13 @@
   Location di Line miliknya minimal sekali saat online (misal di awal shift)
   sebelum bekerja di titik dengan sinyal buruk/tanpa sinyal.
 
-- 🔄 Sedang dikerjakan: export/import Excel (Tahap 1-3 selesai & terverifikasi, Tahap 4/Undo Import belum dimulai)
-- ⬜ Belum: dashboard chart & checklist publik (data masih placeholder, belum tersambung
-  ke Firestore asli — masih dummy)
+- ✅ **Selesai & terverifikasi: Export/Import Excel (Tahap 1-4 LENGKAP)** —
+  Upload→Parse→Preview, Mapping+Validasi, Commit (hapus lama+tulis baru+
+  auto-create Location), dan Undo per-batch. Lihat detail lengkap tiap
+  tahap (termasuk semua bug & fix) di bagian atas.
+- 🔄 Next up: **Sambungkan Dashboard ke data Firestore asli** (data masih
+  placeholder, belum tersambung — masih dummy). Lihat requirement detail
+  di catatan Sesi 1.
 - ⬜ Belum: PWA/offline persistence penuh (masih pakai `enableIndexedDbPersistence`, ada
   warning deprecated — migrasi ke `FirestoreSettings.cache` belum urgent, catat sebagai
   utang teknis kecil)
@@ -482,11 +529,32 @@
   supaya pesan yang ditampilkan akurat sesuai akar masalah sebenarnya.
 
 
+- **Undo Import silently broken kalau user pindah halaman**: state
+  konfirmasi Undo sempat ditaruh page-local di `ImportExcel.jsx` —
+  komponen unmount saat navigasi, klik "Undo" di toast (yang masih
+  tampil global) jadi tidak berefek apapun tanpa error. → Diperbaiki
+  dengan memindah state+logic Undo ke context/provider (`ImportUndoContext`)
+  yang dipasang di root `App.jsx`, di luar `<Routes>`. **Pelajaran umum**:
+  state untuk aksi yang harus "bertahan hidup" lintas navigasi (toast
+  undo, proses background, dll) tidak boleh ditaruh di komponen page —
+  taruh di context/provider level root.
+- **`npx vite build` sukses tapi halaman crash total saat dibuka**:
+  refactor Undo di atas meninggalkan `useNavigate()` terpakai di
+  `ImportExcel.jsx` tanpa `import { useNavigate } from 'react-router-dom'`
+  — `ReferenceError` runtime murni, tidak ketangkap build karena Vite/
+  esbuild tidak melakukan pengecekan scope variabel seperti linter/
+  TypeScript. → Diperbaiki dengan menambah baris import yang hilang.
+  **Pelajaran umum**: build sukses BUKAN bukti halaman bisa dirender —
+  tetap wajib baca kode asli & testing manual di browser, terutama
+  setelah refactor yang menyentuh banyak import.
+
 - ✅ Label role di header — akar masalah Firestore Rules, sudah diperbaiki.
 - ✅ Dashboard intern menampilkan semua Line — keputusan final, dengan highlight visual.
 - ✅ Cell widening untuk kolom teks panjang — diubah dari horizontal overlay menjadi auto-resize vertikal (`textarea`) untuk UX yang lebih baik.
 - ✅ Penambahan garis batas vertikal kolom grid untuk kejelasan batas data.
 - ✅ Hover/tap preview Foto — sudah berfungsi penuh setelah fix Portal.
+- ✅ Undo Import cross-page-navigation — sudah diperbaiki dengan context/provider di root.
+- ✅ `useNavigate` tidak ter-import di `ImportExcel.jsx` (bikin halaman crash) — sudah diperbaiki.
 
 ## File Acuan (selalu sertakan saat mulai sesi baru dengan AI editor)
 - `Spesifikasi_App_Plant_Sourcing.md` — spesifikasi fitur & arsitektur lengkap

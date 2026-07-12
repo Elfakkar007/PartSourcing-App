@@ -10,14 +10,18 @@ export function useToast() {
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([])
 
-  const addToast = useCallback((message, type = 'info') => {
+  const addToast = useCallback((message, type = 'info', options = {}) => {
     const id = Date.now() + Math.random().toString()
-    setToasts(prev => [...prev, { id, message, type }])
+    setToasts(prev => [...prev, { id, message, type, ...options }])
     
-    // Auto-remove after 4 seconds
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id))
-    }, 4000)
+    // Auto-remove
+    let duration = options.duration !== undefined ? options.duration : (options.onUndo ? 10000 : 4000)
+    
+    if (duration > 0) {
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id))
+      }, duration)
+    }
   }, [])
 
   return (
@@ -48,6 +52,28 @@ export function ToastProvider({ children }) {
                 </svg>
               )}
               <span>{toast.message}</span>
+              {toast.onUndo && (
+                <button
+                  onClick={() => {
+                    toast.onUndo()
+                    setToasts(prev => prev.filter(t => t.id !== toast.id))
+                  }}
+                  style={{
+                    marginLeft: '12px',
+                    padding: '4px 8px',
+                    background: 'transparent',
+                    border: '1px solid currentColor',
+                    borderRadius: '4px',
+                    color: 'inherit',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  Undo
+                </button>
+              )}
             </div>
           ))}
         </div>,

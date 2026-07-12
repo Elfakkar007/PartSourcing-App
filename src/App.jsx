@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ToastProvider } from './contexts/ToastContext'
+import { ImportUndoProvider } from './contexts/ImportUndoContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import LinePage from './pages/LinePage'
@@ -31,65 +32,67 @@ function App() {
     <BrowserRouter>
       <ToastProvider>
         <AuthProvider>
-          <Routes>
-            <Route
-              path="/login"
-              element={
-                <PublicRoute>
-                  <Login />
-                </PublicRoute>
-              }
-            />
-            <Route
-              path="/"
-              element={
-                <PrivateRoute>
-                  <Dashboard />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/line/:lineId"
-              element={
-                <PrivateRoute>
-                  <LinePage />
-                </PrivateRoute>
-              }
-            />
-            <Route 
-              path="/admin/settings" 
-              element={
-                <AdminRoute>
-                  <AdminSettings />
-                </AdminRoute>
-              } 
-            />
-            <Route 
-              path="/admin/recycle-bin" 
-              element={
-                <AdminRoute>
-                  <RecycleBin />
-                </AdminRoute>
-              } 
-            />
-            <Route 
-              path="/admin/activity-log" 
-              element={
-                <AdminRoute>
-                  <ActivityLog />
-                </AdminRoute>
-              } 
-            />
-            <Route 
-              path="/admin/import" 
-              element={
-                <AdminRoute>
-                  <ImportExcel />
-                </AdminRoute>
-              } 
-            />
-            <Route path="*" element={<Navigate to="/" />} />
-          </Routes>
+          <ImportUndoProvider>
+            <Routes>
+              <Route
+                path="/login"
+                element={
+                  <PublicRoute>
+                    <Login />
+                  </PublicRoute>
+                }
+              />
+              <Route
+                path="/"
+                element={
+                  <PrivateRoute>
+                    <Dashboard />
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/line/:lineId"
+                element={
+                  <PrivateRoute>
+                    <LinePage />
+                  </PrivateRoute>
+                }
+              />
+              <Route 
+                path="/admin/settings" 
+                element={
+                  <AdminRoute>
+                    <AdminSettings />
+                  </AdminRoute>
+                } 
+              />
+              <Route 
+                path="/admin/recycle-bin" 
+                element={
+                  <AdminRoute>
+                    <RecycleBin />
+                  </AdminRoute>
+                } 
+              />
+              <Route 
+                path="/admin/activity-log" 
+                element={
+                  <AdminRoute>
+                    <ActivityLog />
+                  </AdminRoute>
+                } 
+              />
+              <Route 
+                path="/admin/import" 
+                element={
+                  <AdminRoute>
+                    <ImportExcel />
+                  </AdminRoute>
+                } 
+              />
+              <Route path="*" element={<Navigate to="/" />} />
+            </Routes>
+          </ImportUndoProvider>
         </AuthProvider>
       </ToastProvider>
     </BrowserRouter>

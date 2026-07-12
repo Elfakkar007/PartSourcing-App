@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '../contexts/ToastContext'
+import { useImportUndo } from '../contexts/ImportUndoContext'
 import { useAuth } from '../contexts/AuthContext'
 import { db } from '../lib/firebase'
 import { collection, getDocs, writeBatch, doc, serverTimestamp } from 'firebase/firestore'
@@ -16,8 +17,8 @@ const LINE_OPTIONS = [
 ]
 
 const STANDARD_COLUMNS = [
-  'Plant', 'Location', 'Sub-Machine', 'Item Code', 'Category', 
-  'Part', 'Description ( Bella )', 'Spesification', 'Warehouse Name', 
+  'Plant', 'Location', 'Sub-Machine', 'Item Code', 'Category',
+  'Part', 'Description ( Bella )', 'Spesification', 'Warehouse Name',
   'Status', 'Qty', 'Foto', 'Qty WH'
 ]
 
@@ -25,13 +26,13 @@ export default function ImportExcel() {
   const [step, setStep] = useState(1) // 1: Upload, 2: Mapping & Preview, 3: Validation Report
   const [fileName, setFileName] = useState('')
   const [sheetNames, setSheetNames] = useState([])
-  const [sheetMapping, setSheetMapping] = useState({}) 
-  const [columnMapping, setColumnMapping] = useState({}) 
-  const [parsedData, setParsedData] = useState({}) 
-  const [validationResults, setValidationResults] = useState({}) 
+  const [sheetMapping, setSheetMapping] = useState({})
+  const [columnMapping, setColumnMapping] = useState({})
+  const [parsedData, setParsedData] = useState({})
+  const [validationResults, setValidationResults] = useState({})
   const [previewLine, setPreviewLine] = useState('line1')
   const [isDragging, setIsDragging] = useState(false)
-  
+
   const [showConfirm, setShowConfirm] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
   const [importProgress, setImportProgress] = useState('')
@@ -39,6 +40,7 @@ export default function ImportExcel() {
 
   const fileInputRef = useRef(null)
   const { addToast } = useToast()
+  const { requestUndo } = useImportUndo()
   const { currentUser } = useAuth()
   const navigate = useNavigate()
 
@@ -77,14 +79,14 @@ export default function ImportExcel() {
       try {
         const data = e.target.result
         const workbook = XLSX.read(data, { type: 'binary' })
-        
+
         const names = workbook.SheetNames
         setSheetNames(names)
-        
+
         const initialMapping = {}
         const initialColMapping = {}
         const dataMap = {}
-        
+
         names.forEach(name => {
           // Guess mapping
           const lower = name.toLowerCase()
@@ -98,10 +100,10 @@ export default function ImportExcel() {
           // Parse data
           const sheet = workbook.Sheets[name]
           const sheetData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
-          
+
           const rawHeaders = sheetData[0] || []
           const headers = rawHeaders.slice(0, 13)
-          
+
           const colMap = {}
           STANDARD_COLUMNS.forEach(stdCol => {
             const match = headers.find(h => h && h.trim().toLowerCase() === stdCol.toLowerCase())
@@ -113,28 +115,28 @@ export default function ImportExcel() {
           for (let i = 1; i < sheetData.length; i++) {
             const rawRow = sheetData[i] || []
             const truncatedRow = rawRow.slice(0, 13)
-            
+
             const hasData = truncatedRow.some(cell => {
               if (cell === null || cell === undefined) return false
               if (typeof cell === 'string') return cell.trim() !== ''
               return true
             })
-            
+
             if (hasData) {
               rows.push({ data: truncatedRow, originalIndex: i + 1 })
             }
           }
-          
+
           dataMap[name] = { headers, rows }
         })
 
         setSheetMapping(initialMapping)
         setColumnMapping(initialColMapping)
         setParsedData(dataMap)
-        
+
         const firstMatch = Object.values(initialMapping).find(v => v !== '')
         if (firstMatch) setPreviewLine(firstMatch)
-        
+
         setStep(2)
         addToast('File berhasil diparse', 'success')
       } catch (err) {
@@ -164,24 +166,24 @@ export default function ImportExcel() {
     sheetNames.forEach(name => {
       const lineId = sheetMapping[name]
       if (!lineId) return // ignore if sheet is skipped
-      
+
       const mapping = columnMapping[name]
       const rawHeaders = parsedData[name].headers
-      
+
       const indexMap = {}
       Object.entries(mapping).forEach(([stdCol, rawName]) => {
         if (rawName) {
           indexMap[stdCol] = rawHeaders.indexOf(rawName)
         }
       })
-      
+
       const validRows = []
       const invalidRows = []
-      
+
       parsedData[name].rows.forEach(rowObj => {
         const row = rowObj.data
         const errors = []
-        
+
         const getVal = (stdCol) => {
           const idx = indexMap[stdCol]
           if (idx !== undefined && idx >= 0) {
@@ -202,7 +204,7 @@ export default function ImportExcel() {
             errors.push({ col: 'Status', message: `Status tidak dikenali: '${statusVal}'` })
           }
         }
-        
+
         const qtyVal = mappedData['Qty']
         if (qtyVal) {
           const num = Number(qtyVal.replace(',', '.')) // handle possible comma decimals
@@ -212,24 +214,24 @@ export default function ImportExcel() {
         }
 
         if (errors.length > 0) {
-          invalidRows.push({ 
-            originalRowIndex: rowObj.originalIndex, 
-            line: LINE_OPTIONS.find(l => l.id === lineId)?.label, 
-            errors, 
-            data: mappedData 
+          invalidRows.push({
+            originalRowIndex: rowObj.originalIndex,
+            line: LINE_OPTIONS.find(l => l.id === lineId)?.label,
+            errors,
+            data: mappedData
           })
         } else {
-          validRows.push({ 
-            originalRowIndex: rowObj.originalIndex, 
-            line: lineId, 
-            data: mappedData 
+          validRows.push({
+            originalRowIndex: rowObj.originalIndex,
+            line: lineId,
+            data: mappedData
           })
         }
       })
-      
+
       results[name] = { validRows, invalidRows }
     })
-    
+
     setValidationResults(results)
     setStep(3)
   }
@@ -256,14 +258,14 @@ export default function ImportExcel() {
     setShowConfirm(false)
     setIsImporting(true)
     const batchId = `import_${Date.now()}`
-    
+
     try {
       // 1. Delete all existing data
       setImportProgress(`Menghapus ${deleteStats.components} data baris lama...`)
       const compSnap = await getDocs(collection(db, 'components'))
       let batch = writeBatch(db)
       let count = 0
-      
+
       for (const docSnap of compSnap.docs) {
         batch.delete(docSnap.ref)
         count++
@@ -273,7 +275,7 @@ export default function ImportExcel() {
         }
       }
       if (count % 500 !== 0) await batch.commit()
-      
+
       setImportProgress(`Menghapus ${deleteStats.locations} lokasi lama...`)
       const locSnap = await getDocs(collection(db, 'locations'))
       batch = writeBatch(db)
@@ -287,41 +289,41 @@ export default function ImportExcel() {
         }
       }
       if (count % 500 !== 0) await batch.commit()
-      
+
       // 2. Prepare locations
       setImportProgress('Membuat lokasi baru...')
       const uniqueLocs = {} // { lineId: Set<string> }
-      
+
       const allRowsToInsert = []
       sheetNames.forEach(sheet => {
         const lineId = sheetMapping[sheet]
         if (!lineId || !validationResults[sheet]) return
-        
+
         const processRow = (rowObj) => {
           const locName = rowObj.data['Location']?.trim() || ''
           if (!uniqueLocs[lineId]) uniqueLocs[lineId] = new Set()
           uniqueLocs[lineId].add(locName)
           allRowsToInsert.push({ lineId, data: rowObj.data })
         }
-        
+
         validationResults[sheet].validRows.forEach(processRow)
         validationResults[sheet].invalidRows.forEach(processRow)
       })
-      
+
       const locMapping = {} // { lineId: { locName: locId } }
       batch = writeBatch(db)
       count = 0
       let newLocCount = 0
-      
+
       for (const [lineId, locSet] of Object.entries(uniqueLocs)) {
         locMapping[lineId] = {}
         for (const locName of locSet) {
           const displayLocName = locName === '' ? 'Belum Ada Lokasi' : locName
           const baseSlug = displayLocName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
           const locId = `${lineId}__${baseSlug}`
-          
+
           locMapping[lineId][locName] = locId
-          
+
           batch.set(doc(db, 'locations', locId), {
             name: displayLocName,
             line: lineId,
@@ -331,7 +333,7 @@ export default function ImportExcel() {
           })
           count++
           newLocCount++
-          
+
           if (count % 500 === 0) {
             await batch.commit()
             batch = writeBatch(db)
@@ -339,17 +341,17 @@ export default function ImportExcel() {
         }
       }
       if (count % 500 !== 0) await batch.commit()
-      
+
       // 3. Write new components
       setImportProgress(`Menulis ${allRowsToInsert.length} baris data baru...`)
       batch = writeBatch(db)
       count = 0
-      
+
       for (const rowObj of allRowsToInsert) {
         const { lineId, data } = rowObj
         const locName = data['Location']?.trim() || ''
         const locId = locMapping[lineId][locName]
-        
+
         const componentData = {
           line: lineId,
           locationId: locId,
@@ -360,7 +362,7 @@ export default function ImportExcel() {
           createdAt: serverTimestamp(),
           lastUpdated: serverTimestamp()
         }
-        
+
         const fieldMapping = {
           'Sub-Machine': 'subMachine',
           'Item Code': 'itemCode',
@@ -373,11 +375,11 @@ export default function ImportExcel() {
           'Foto': 'foto',
           'Qty WH': 'qtyWh'
         }
-        
+
         Object.entries(fieldMapping).forEach(([stdCol, key]) => {
           componentData[key] = data[stdCol] || ''
         })
-        
+
         const qtyVal = data['Qty']
         if (qtyVal) {
           const num = Number(qtyVal.replace(',', '.'))
@@ -389,26 +391,32 @@ export default function ImportExcel() {
         } else {
           componentData['qty'] = ''
         }
-        
+
         batch.set(doc(collection(db, 'components')), componentData)
         count++
-        
+
         if (count % 500 === 0) {
           await batch.commit()
           batch = writeBatch(db)
         }
       }
       if (count % 500 !== 0) await batch.commit()
-      
-      addToast(`Berhasil mengimpor ${allRowsToInsert.length} baris dan ${newLocCount} lokasi.`, 'success')
+
+      addToast(`Berhasil mengimpor ${allRowsToInsert.length} baris dan ${newLocCount} lokasi.`, 'success', {
+        duration: 15000,
+        onUndo: () => {
+          requestUndo(batchId, allRowsToInsert.length, newLocCount)
+        }
+      })
+
       logActivity('import_excel', currentUser?.uid, {
         importBatchId: batchId,
         totalRows: allRowsToInsert.length,
         totalLocations: newLocCount
       })
-      
+
       cancelImport()
-      
+
     } catch (err) {
       console.error(err)
       addToast('Import terhenti di tengah jalan, sebagian data mungkin sudah berubah — hubungi developer sebelum lanjut', 'error')
@@ -496,7 +504,7 @@ export default function ImportExcel() {
       </header>
 
       <main style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-        
+
         {step === 1 && (
           <div style={{ background: '#fff', border: '1px solid #d0d7de', borderRadius: '6px', padding: '48px 24px', textAlign: 'center' }}>
             <div
@@ -533,7 +541,7 @@ export default function ImportExcel() {
 
         {step === 2 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            
+
             {/* Konfigurasi Sheet */}
             <div style={{ background: '#fff', border: '1px solid #d0d7de', borderRadius: '6px', overflow: 'hidden' }}>
               <div style={{ padding: '16px 24px', borderBottom: '1px solid #e1e4e8', background: '#f6f8fa' }}>
@@ -570,7 +578,7 @@ export default function ImportExcel() {
                   <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#5f6368' }}>Periksa kembali kolom asli mana yang akan dipetakan ke kolom sistem.</p>
                 </div>
               </div>
-              
+
               <div style={{ padding: '0' }}>
                 {sheetNames.filter(s => sheetMapping[s]).map(sheet => (
                   <div key={`colmap-${sheet}`} style={{ borderBottom: '1px solid #e1e4e8' }}>
@@ -581,7 +589,7 @@ export default function ImportExcel() {
                       {STANDARD_COLUMNS.map(stdCol => (
                         <div key={stdCol} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                           <label style={{ fontSize: '12px', fontWeight: 600, color: '#5f6368' }}>
-                            {stdCol} {['Sub-Machine', 'Category', 'Part', 'Spesification', 'Status', 'Qty', 'Foto'].includes(stdCol) && <span style={{color: '#cf222e'}}>*</span>}
+                            {stdCol} {['Sub-Machine', 'Category', 'Part', 'Spesification', 'Status', 'Qty', 'Foto'].includes(stdCol) && <span style={{ color: '#cf222e' }}>*</span>}
                           </label>
                           <select
                             className="grid-cell-input"
@@ -627,7 +635,7 @@ export default function ImportExcel() {
                   ))}
                 </div>
               </div>
-              
+
               <div style={{ padding: '16px 24px', background: '#f6f8fa', fontSize: '13px', color: '#5f6368' }}>
                 Menampilkan maksimal 20 baris pertama dari {combinedRows.length} total baris untuk {LINE_OPTIONS.find(l => l.id === previewLine)?.label}.
               </div>
@@ -646,7 +654,7 @@ export default function ImportExcel() {
                         </th>
                         {combinedHeaders.map((h, i) => (
                           <th key={i} style={{ position: 'sticky', top: 0, background: '#f6f8fa', padding: '8px 12px', borderBottom: '1px solid #d0d7de', borderRight: '1px solid #d0d7de', color: '#1f2328', fontWeight: 600, textAlign: 'left', whiteSpace: 'nowrap' }}>
-                            {h || `Column ${i+1}`}
+                            {h || `Column ${i + 1}`}
                           </th>
                         ))}
                       </tr>
@@ -698,14 +706,14 @@ export default function ImportExcel() {
 
         {step === 3 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            
+
             {/* Laporan Keseluruhan & Per Line */}
             <div style={{ background: '#fff', border: '1px solid #d0d7de', borderRadius: '6px', overflow: 'hidden' }}>
               <div style={{ padding: '16px 24px', borderBottom: '1px solid #e1e4e8', background: '#f6f8fa' }}>
                 <h3 style={{ margin: 0, fontSize: '14px', color: '#1f2328' }}>Ringkasan Hasil Validasi</h3>
                 <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#5f6368' }}>Pemeriksaan kelengkapan dan format data berdasarkan kolom wajib.</p>
               </div>
-              
+
               <div style={{ padding: '24px', display: 'flex', gap: '24px', borderBottom: '1px solid #e1e4e8' }}>
                 <div style={{ flex: 1, padding: '16px', background: '#fafbfc', border: '1px solid #d0d7de', borderRadius: '6px', textAlign: 'center' }}>
                   <div style={{ fontSize: '12px', color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Format Bersih</div>
@@ -764,7 +772,7 @@ export default function ImportExcel() {
                     Detail Baris dengan Kesalahan Format
                   </h3>
                 </div>
-                
+
                 <div style={{ overflowX: 'auto', maxHeight: '600px' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                     <thead>
