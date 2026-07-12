@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import {
   collection, query, where, onSnapshot,
-  addDoc, updateDoc, doc, setDoc, serverTimestamp, writeBatch
+  addDoc, updateDoc, doc, setDoc, serverTimestamp, writeBatch, arrayUnion
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { logActivity } from '../lib/activityLog'
@@ -157,7 +157,7 @@ function SyncStatusBar() {
 /* ------------------------------------------------------------------ */
 /*  EditableCell — the core inline-edit component                     */
 /* ------------------------------------------------------------------ */
-function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey }) {
+function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey, categoryOptions }) {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState('')
   const [showSaved, setShowSaved] = useState(false)
@@ -233,7 +233,37 @@ function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey
   let content
 
   if (isEditing) {
-    if (type === 'select') {
+    if (field === 'category') {
+      content = (
+        <>
+          <input
+            ref={inputRef}
+            type="text"
+            list={`category-suggestions-${rowId}`}
+            className="grid-cell-input"
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              width: '100%',
+              height: '100%',
+              zIndex: 10,
+              boxShadow: 'rgba(0,0,0,0.15) 0 4px 16px, rgba(0,0,0,0.08) 0 1px 4px',
+              borderRadius: '2px',
+              background: '#ffffff'
+            }}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={handleKeyDown}
+          />
+          <datalist id={`category-suggestions-${rowId}`}>
+            {(categoryOptions || []).map(opt => <option key={opt} value={opt} />)}
+          </datalist>
+          {showSaved && <SaveIndicator />}
+        </>
+      )
+    } else if (type === 'select') {
       const options = COLUMNS.find(c => c.key === field)?.options || []
       content = (
         <select
@@ -1100,6 +1130,7 @@ export default function LinePage() {
     requiredColumns: ['subMachine', 'category', 'part', 'spesification', 'status', 'qty', 'foto'],
     hiddenColumns: []
   })
+  const [categoryOptions, setCategoryOptions] = useState([])
 
   const [locations, setLocations] = useState(LOCATIONS_BY_LINE[lineId] || [])
   const [activeLocation, setActiveLocation] = useState(locations[0]?.id || '')
@@ -1186,7 +1217,20 @@ export default function LinePage() {
         })
       }
     })
-    return () => unsubConfig()
+
+    const catRef = doc(db, 'settings', 'categoryList')
+    const unsubCat = onSnapshot(catRef, (snap) => {
+      if (snap.exists()) {
+        setCategoryOptions(snap.data().values || [])
+      } else {
+        setCategoryOptions([])
+      }
+    })
+
+    return () => {
+      unsubConfig()
+      unsubCat()
+    }
   }, [])
 
   // ---- Computed visible columns ----
@@ -1252,7 +1296,17 @@ export default function LinePage() {
       lastEditedBy: currentUser?.uid || '',
       lastUpdated: serverTimestamp(),
     })
-  }, [currentUser])
+
+    if (field === 'category' && value && value.trim() !== '') {
+      const trimmedVal = value.trim()
+      const exists = categoryOptions.some(opt => opt.toLowerCase() === trimmedVal.toLowerCase())
+      if (!exists) {
+        setDoc(doc(db, 'settings', 'categoryList'), {
+          values: arrayUnion(trimmedVal)
+        }, { merge: true }).catch(err => console.error('Failed to update category list:', err))
+      }
+    }
+  }, [currentUser, categoryOptions])
 
   // ---- Add new row ----
   async function handleAddRow() {
@@ -1962,6 +2016,7 @@ export default function LinePage() {
                         canEdit={canEdit}
                         onSave={handleSaveCell}
                         wide={col.wide}
+                        categoryOptions={categoryOptions}
                       />
                     ))}
                     {canEdit && (
