@@ -129,15 +129,80 @@
   - Bug bawaan dari fitur sebelumnya (kolom terkunci tidak konsisten) sempat
     muncul di walkthrough pertama, sudah diperbaiki di walkthrough kedua.
 
-- 🔨 **SEDANG DIKERJAKAN SELANJUTNYA: Recycle Bin (view + restore) & Log Aktivitas**
+- ✅ **SELESAI & TERVERIFIKASI: Recycle Bin (`/admin/recycle-bin`)**
 
-  - `handleDelete` belum menyimpan `deletedBy` (siapa yang menghapus) — perlu
-    ditambahkan untuk akuntabilitas/log aktivitas
-  - Belum ada halaman/panel admin untuk **melihat & memulihkan** baris yang
-    di-soft-delete (Recycle Bin view) — soft-delete-nya sendiri sudah jalan,
-    tapi belum ada cara restore dari UI
-  - Log aktivitas (siapa-apa-kapan secara umum, bukan cuma delete) belum ada
-    sama sekali sebagai fitur terpisah
+  - `handleDelete` (LinePage.jsx) menyimpan `deletedBy: currentUser?.uid` +
+    `deletedAt: serverTimestamp()` di setiap dokumen yang di-soft-delete —
+    terverifikasi lewat Firebase Console, UID terisi benar.
+  - Halaman `/admin/recycle-bin` (dilindungi AdminRoute): tabel lintas semua
+    Line, kolom Line/Location/Sub-Machine/Part/Dihapus Oleh/Waktu Hapus,
+    diurutkan terbaru dulu. Tombol Pulihkan (single & bulk) dan Hapus
+    Selamanya (single & bulk, via `deleteDoc` asli + `ConfirmDeleteModal`
+    yang sudah diekstrak jadi komponen reusable `src/components/ConfirmDeleteModal.jsx`).
+  - Search bar (client-side, cocok ke `subMachine`/`part`) + filter dropdown
+    Line & "Dihapus Oleh" (AND dengan search) + bulk checkbox selection
+    (reset otomatis saat filter berubah, "Pilih Semua" cuma pilih baris yang
+    sedang tampil setelah filter) — semua sudah diverifikasi baca kode
+    asli, bukan cuma klaim walkthrough.
+  - Security Rules `components`: `allow delete: if isAdmin();` ditambahkan
+    terpisah dari `allow create, update` (supaya intern TIDAK bisa
+    `deleteDoc` permanen, meski tetap boleh soft-delete/`updateDoc` baris di
+    Line-nya sendiri seperti biasa) — sempat 2x AI editor mengusulkan rules
+    yang salah (fungsi `canEditRow()` yang tidak pernah ada + `create`
+    kehilangan syarat `line == myLine()`), JANGAN pernah pakai rules dari
+    draft manapun tanpa verifikasi ulang terhadap rules yang sedang aktif.
+  - Field `email` sempat kosong di sebagian dokumen `users` (Cuma ada
+    `role`+`assignedLine`), menyebabkan "Unknown User" di kolom "Dihapus
+    Oleh" — sudah diisi manual oleh user di Firebase Console (bukan bug kode).
+  - Bug regresi sempat muncul & sudah diperbaiki: kolom Foto sempat tidak
+    sengaja ke-render sebagai `<input type="number">` (bukan text) gara-gara
+    percabangan mode-edit `EditableCell` cuma eksplisit menangani
+    `select`/`text`, semua type lain (termasuk `foto`) jatuh ke fallback
+    number. Sudah diperbaiki: tambah percabangan eksplisit `number`, fallback
+    terakhir sekarang `text` biasa.
+
+- 🚨 **Bug besar ditemukan & DIPERBAIKI: ID Location bentrok antar-Line**
+  — Root cause: ID dokumen `locations` dibuat murni dari slugify nama
+  (`chiller-ahu`), TANPA namespace per Line. Kalau 2 Line punya lokasi
+  dengan nama sama (sangat umum: "Motor Room", "Chiller AHU", dll dipakai
+  berulang di banyak Line), mereka rebutan 1 dokumen ID yang sama.
+  Konsekuensi nyata yang sempat kejadian: intern Line 4 bikin lokasi
+  "Chiller AHU" (sudah ada duluan milik Line 1) → Security Rules menolak
+  (update lokasi cuma boleh admin, sedangkan create/rename oleh intern
+  ditolak) → rollback ke kondisi server (`line` balik ke `"line1"`) → tab
+  lokasi hilang dari Line 4 → baris (components) yang sudah keburu diisi
+  intern OFFLINE ke lokasi itu jadi "yatim" (tersimpan valid di Firestore
+  dengan `locationId` yang benar, tapi tidak muncul di UI manapun karena
+  tidak ada lagi dokumen `locations` yang match kombinasi id+line-nya).
+  **Fix**: ID location sekarang `${lineId}__${slug}` (misal
+  `line4__chiller-ahu`), dijamin unik per Line. Data lama (format ID tanpa
+  prefix Line) tetap kompatibel terbaca, cek duplikat berbasis nama
+  (case-insensitive) terhadap lokasi Line yang sama saja — sudah
+  diverifikasi langsung dari kode.
+  **Catatan**: karena fitur Export/Import Excel akan menyapu bersih semua
+  data existing (kecuali `users`) dan gantikan dengan data import baru,
+  baris "yatim" dari masa testing ini TIDAK PERLU dikejar/dipulihkan
+  manual — akan otomatis terganti saat proses import nanti.
+  - `handleAddLocation` sekaligus diubah ke pola fire-and-forget (sebelumnya
+    satu-satunya fungsi tulis-data yang masih pakai `await`, beda sendiri
+    dari `handleAddRow`/`handleBulkAdd`/`handleDuplicate`/`handleDelete`
+    yang sudah fire-and-forget dari awal) — sudah diverifikasi dari kode.
+
+- ⬜ **Backlog berikutnya (urutan final disepakati, belum dikerjakan sama sekali):**
+  1. Log Aktivitas (siapa-ubah-apa-kapan secara umum, bukan cuma delete)
+  2. Kolom Category → combobox/autocomplete (cegah typo "beraker" vs
+     "Breaker", tetap bisa tambah kategori baru bebas)
+  3. Export/Import Excel (fitur besar, lihat Spesifikasi §8: preview,
+     mapping kolom manual, validasi per baris, undo per batch, export
+     per-Line & gabungan 4 sheet) — akan jadi proses "reset bersih" data
+     testing/dummy yang ada sekarang, digantikan data asli dari Excel user
+  4. Sambungkan Dashboard ke data Firestore asli (SENGAJA diletakkan
+     PALING TERAKHIR, setelah Import — supaya Dashboard langsung dibangun
+     & dites terhadap data final/asli, bukan data dummy yang toh akan
+     disapu bersih; menghindari kerja & testing dua kali) — breakdown per
+     Category harus baca nilai unik dari data real + warna berbasis hash
+     nama kategori, BUKAN hardcode/urutan alfabetis
+
 
 - ℹ️ **Keterbatasan cache offline yang perlu diketahui (bukan bug)**: jika
   sebuah Location belum pernah dibuka sekali pun saat online, datanya TIDAK

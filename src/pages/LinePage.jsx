@@ -8,6 +8,7 @@ import {
   addDoc, updateDoc, doc, setDoc, serverTimestamp, writeBatch
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
+import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
 
 /* ------------------------------------------------------------------ */
 /*  Column definitions — 11 columns per Spesifikasi §4                */
@@ -302,12 +303,38 @@ function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey
           {showSaved && <SaveIndicator />}
         </>
       )
-    } else {
+    } else if (type === 'number') {
       content = (
         <>
           <input
             ref={inputRef}
             type="number"
+            className="grid-cell-input"
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              width: '100%',
+              height: '100%',
+              zIndex: 10,
+              boxShadow: 'rgba(0,0,0,0.15) 0 4px 16px, rgba(0,0,0,0.08) 0 1px 4px',
+              borderRadius: '2px',
+              background: '#ffffff'
+            }}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={handleKeyDown}
+          />
+          {showSaved && <SaveIndicator />}
+        </>
+      )
+    } else {
+      content = (
+        <>
+          <input
+            ref={inputRef}
+            type="text"
             className="grid-cell-input"
             style={{
               position: 'absolute',
@@ -577,37 +604,6 @@ function FotoDisplay({ url, canEdit, onStartEdit, showSaved }) {
 
 /* ------------------------------------------------------------------ */
 /*  ConfirmDeleteModal — confirmation dialog for delete operations     */
-/* ------------------------------------------------------------------ */
-function ConfirmDeleteModal({ count, locationName, onConfirm, onCancel }) {
-  return createPortal(
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <h3 className="modal-title">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d93025" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-          Konfirmasi Hapus
-        </h3>
-        <div className="modal-body">
-          <p>
-            Anda akan menghapus <strong>{count} baris</strong> dari lokasi <strong>{locationName}</strong>.
-          </p>
-          <p style={{ fontSize: '12px', color: '#5f6368', marginTop: '8px' }}>
-            Data yang dihapus akan dipindahkan ke Recycle Bin dan bisa di-restore oleh Admin.
-          </p>
-        </div>
-        <div className="modal-footer">
-          <button className="btn-secondary" onClick={onCancel}>Batal</button>
-          <button className="btn-danger" onClick={onConfirm}>Hapus {count} Baris</button>
-        </div>
-      </div>
-    </div>,
-    document.body
-  )
-}
-
 /* ------------------------------------------------------------------ */
 /*  BulkAddModal — input dialog for adding multiple rows at once       */
 /* ------------------------------------------------------------------ */
@@ -1316,6 +1312,7 @@ export default function LinePage() {
       const docRef = doc(db, 'components', rowId)
       batch.update(docRef, {
         isDeleted: true,
+        deletedBy: currentUser?.uid,
         deletedAt: serverTimestamp(),
         lastEditedBy: currentUser?.uid || '',
         lastUpdated: serverTimestamp(),
@@ -1486,7 +1483,7 @@ export default function LinePage() {
       })
     }
     batch.commit().then(() => {
-      addToast(`${matches.length} baris berhasil diperbarui.`, 'success')
+    addToast(`${matches.length} baris berhasil diperbarui.`, 'success')
     }).catch(err => {
       console.error('Failed to find and replace:', err)
       if (err.code === 'permission-denied') {
@@ -1496,15 +1493,16 @@ export default function LinePage() {
     setShowFindReplaceModal(false)
   }
 
-  async function handleAddLocation(e, locName) {
+  function handleAddLocation(e, locName) {
     e.preventDefault()
     if (!canEdit || !locName.trim()) return
     
     const trimmedName = locName.trim()
-    const id = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    const baseSlug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    const id = `${lineId}__${baseSlug}`
     
-    // Check duplicate
-    const exists = locations.find(l => l.name.toLowerCase() === trimmedName.toLowerCase() || l.id === id)
+    // Check duplicate (name-based)
+    const exists = locations.find(l => l.name.toLowerCase() === trimmedName.toLowerCase())
     if (exists) {
       addToast(`Lokasi '${trimmedName}' sudah ada di Line ini.`, 'error')
       return
@@ -1512,24 +1510,23 @@ export default function LinePage() {
 
     const docRef = doc(db, 'locations', id)
     
-    try {
-      await setDoc(docRef, {
-        name: locName.trim(),
-        line: lineId,
-        createdBy: currentUser?.uid || '',
-        createdAt: serverTimestamp()
-      })
-      addToast('Location berhasil ditambahkan.', 'success')
-      setActiveLocation(id)
-      setShowAddLocationModal(false)
-    } catch (err) {
+    setDoc(docRef, {
+      name: trimmedName,
+      line: lineId,
+      createdBy: currentUser?.uid || '',
+      createdAt: serverTimestamp()
+    }).catch(err => {
       console.error('Failed to add location:', err)
       if (err.code === 'permission-denied') {
         addToast('Permission denied: Anda tidak memiliki akses untuk menambah lokasi di Line ini.', 'error')
       } else {
         addToast('Gagal menambah lokasi.', 'error')
       }
-    }
+    })
+
+    addToast('Location berhasil ditambahkan.', 'success')
+    setActiveLocation(id)
+    setShowAddLocationModal(false)
   }
 
   // Total table width for min-width
@@ -2035,10 +2032,11 @@ export default function LinePage() {
             onCancel={() => setShowBulkAddModal(false)}
           />
         )}
+        {/* Delete Confirmation */}
         {showDeleteModal && (
           <ConfirmDeleteModal
-            count={deleteTargetIds.length}
-            locationName={activeLocationName}
+            itemLabel={`${deleteTargetIds.length} baris dari lokasi ${activeLocationName}`}
+            confirmText={`Hapus ${deleteTargetIds.length} Baris`}
             onConfirm={handleDelete}
             onCancel={() => { setShowDeleteModal(false); setDeleteTargetIds([]) }}
           />

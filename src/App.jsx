@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import LinePage from './pages/LinePage'
 import AdminSettings from './pages/AdminSettings'
+import RecycleBin from './pages/RecycleBin'
 
 function AdminRoute({ children }) {
   const { currentUser, userRole } = useAuth()
@@ -58,6 +59,14 @@ function App() {
               element={
                 <AdminRoute>
                   <AdminSettings />
+                </AdminRoute>
+              } 
+            />
+            <Route 
+              path="/admin/recycle-bin" 
+              element={
+                <AdminRoute>
+                  <RecycleBin />
                 </AdminRoute>
               } 
             />
