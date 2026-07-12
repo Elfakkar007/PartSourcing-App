@@ -2,6 +2,11 @@ import { useState, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '../contexts/ToastContext'
+import { useAuth } from '../contexts/AuthContext'
+import { db } from '../lib/firebase'
+import { collection, getDocs, writeBatch, doc, serverTimestamp } from 'firebase/firestore'
+import { logActivity } from '../lib/activityLog'
+import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
 
 const LINE_OPTIONS = [
   { id: 'line1', label: 'Line 1' },
@@ -27,8 +32,14 @@ export default function ImportExcel() {
   const [previewLine, setPreviewLine] = useState('line1')
   const [isDragging, setIsDragging] = useState(false)
   
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState('')
+  const [deleteStats, setDeleteStats] = useState({ components: 0, locations: 0 })
+
   const fileInputRef = useRef(null)
   const { addToast } = useToast()
+  const { currentUser } = useAuth()
   const navigate = useNavigate()
 
   const handleDragOver = (e) => {
@@ -223,6 +234,190 @@ export default function ImportExcel() {
     setStep(3)
   }
 
+  const handlePrepareImport = async () => {
+    setIsImporting(true)
+    setImportProgress('Menghitung data lama...')
+    try {
+      const compSnap = await getDocs(collection(db, 'components'))
+      const locSnap = await getDocs(collection(db, 'locations'))
+      setDeleteStats({ components: compSnap.size, locations: locSnap.size })
+      setShowConfirm(true)
+      setIsImporting(false)
+      setImportProgress('')
+    } catch (error) {
+      console.error(error)
+      addToast('Gagal menghitung data', 'error')
+      setIsImporting(false)
+      setImportProgress('')
+    }
+  }
+
+  const handleCommitImport = async () => {
+    setShowConfirm(false)
+    setIsImporting(true)
+    const batchId = `import_${Date.now()}`
+    
+    try {
+      // 1. Delete all existing data
+      setImportProgress(`Menghapus ${deleteStats.components} data baris lama...`)
+      const compSnap = await getDocs(collection(db, 'components'))
+      let batch = writeBatch(db)
+      let count = 0
+      
+      for (const docSnap of compSnap.docs) {
+        batch.delete(docSnap.ref)
+        count++
+        if (count % 500 === 0) {
+          await batch.commit()
+          batch = writeBatch(db)
+        }
+      }
+      if (count % 500 !== 0) await batch.commit()
+      
+      setImportProgress(`Menghapus ${deleteStats.locations} lokasi lama...`)
+      const locSnap = await getDocs(collection(db, 'locations'))
+      batch = writeBatch(db)
+      count = 0
+      for (const docSnap of locSnap.docs) {
+        batch.delete(docSnap.ref)
+        count++
+        if (count % 500 === 0) {
+          await batch.commit()
+          batch = writeBatch(db)
+        }
+      }
+      if (count % 500 !== 0) await batch.commit()
+      
+      // 2. Prepare locations
+      setImportProgress('Membuat lokasi baru...')
+      const uniqueLocs = {} // { lineId: Set<string> }
+      
+      const allRowsToInsert = []
+      sheetNames.forEach(sheet => {
+        const lineId = sheetMapping[sheet]
+        if (!lineId || !validationResults[sheet]) return
+        
+        const processRow = (rowObj) => {
+          const locName = rowObj.data['Location']?.trim() || ''
+          if (!uniqueLocs[lineId]) uniqueLocs[lineId] = new Set()
+          uniqueLocs[lineId].add(locName)
+          allRowsToInsert.push({ lineId, data: rowObj.data })
+        }
+        
+        validationResults[sheet].validRows.forEach(processRow)
+        validationResults[sheet].invalidRows.forEach(processRow)
+      })
+      
+      const locMapping = {} // { lineId: { locName: locId } }
+      batch = writeBatch(db)
+      count = 0
+      let newLocCount = 0
+      
+      for (const [lineId, locSet] of Object.entries(uniqueLocs)) {
+        locMapping[lineId] = {}
+        for (const locName of locSet) {
+          const displayLocName = locName === '' ? 'Belum Ada Lokasi' : locName
+          const baseSlug = displayLocName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+          const locId = `${lineId}__${baseSlug}`
+          
+          locMapping[lineId][locName] = locId
+          
+          batch.set(doc(db, 'locations', locId), {
+            name: displayLocName,
+            line: lineId,
+            importBatchId: batchId,
+            createdBy: currentUser?.uid || '',
+            createdAt: serverTimestamp()
+          })
+          count++
+          newLocCount++
+          
+          if (count % 500 === 0) {
+            await batch.commit()
+            batch = writeBatch(db)
+          }
+        }
+      }
+      if (count % 500 !== 0) await batch.commit()
+      
+      // 3. Write new components
+      setImportProgress(`Menulis ${allRowsToInsert.length} baris data baru...`)
+      batch = writeBatch(db)
+      count = 0
+      
+      for (const rowObj of allRowsToInsert) {
+        const { lineId, data } = rowObj
+        const locName = data['Location']?.trim() || ''
+        const locId = locMapping[lineId][locName]
+        
+        const componentData = {
+          line: lineId,
+          locationId: locId,
+          importBatchId: batchId,
+          isDeleted: false,
+          createdBy: currentUser?.uid || '',
+          lastEditedBy: currentUser?.uid || '',
+          createdAt: serverTimestamp(),
+          lastUpdated: serverTimestamp()
+        }
+        
+        const fieldMapping = {
+          'Sub-Machine': 'subMachine',
+          'Item Code': 'itemCode',
+          'Category': 'category',
+          'Part': 'part',
+          'Description ( Bella )': 'description',
+          'Spesification': 'spesification',
+          'Warehouse Name': 'warehouseName',
+          'Status': 'status',
+          'Foto': 'foto',
+          'Qty WH': 'qtyWh'
+        }
+        
+        Object.entries(fieldMapping).forEach(([stdCol, key]) => {
+          componentData[key] = data[stdCol] || ''
+        })
+        
+        const qtyVal = data['Qty']
+        if (qtyVal) {
+          const num = Number(qtyVal.replace(',', '.'))
+          if (!isNaN(num)) {
+            componentData['qty'] = num
+          } else {
+            componentData['qty'] = qtyVal // invalid string as is
+          }
+        } else {
+          componentData['qty'] = ''
+        }
+        
+        batch.set(doc(collection(db, 'components')), componentData)
+        count++
+        
+        if (count % 500 === 0) {
+          await batch.commit()
+          batch = writeBatch(db)
+        }
+      }
+      if (count % 500 !== 0) await batch.commit()
+      
+      addToast(`Berhasil mengimpor ${allRowsToInsert.length} baris dan ${newLocCount} lokasi.`, 'success')
+      logActivity('import_excel', currentUser?.uid, {
+        importBatchId: batchId,
+        totalRows: allRowsToInsert.length,
+        totalLocations: newLocCount
+      })
+      
+      cancelImport()
+      
+    } catch (err) {
+      console.error(err)
+      addToast('Import terhenti di tengah jalan, sebagian data mungkin sudah berubah — hubungi developer sebelum lanjut', 'error')
+    } finally {
+      setIsImporting(false)
+      setImportProgress('')
+    }
+  }
+
   const cancelImport = () => {
     setStep(1)
     setFileName('')
@@ -256,6 +451,7 @@ export default function ImportExcel() {
   const step3ByLine = { line1: { valid: 0, invalid: 0 }, line2: { valid: 0, invalid: 0 }, line3: { valid: 0, invalid: 0 }, line4: { valid: 0, invalid: 0 } }
   let allInvalidRows = []
 
+  let w = 0
   if (step === 3) {
     sheetNames.forEach(sheet => {
       const lineId = sheetMapping[sheet]
@@ -268,6 +464,18 @@ export default function ImportExcel() {
         step3ByLine[lineId].invalid += ivCount
         allInvalidRows = allInvalidRows.concat(validationResults[sheet].invalidRows)
       }
+    })
+
+    const uniqueLocsTemp = {}
+    sheetNames.forEach(sheet => {
+      const lineId = sheetMapping[sheet]
+      if (!lineId || !validationResults[sheet]) return
+      if (!uniqueLocsTemp[lineId]) uniqueLocsTemp[lineId] = new Set()
+      validationResults[sheet].validRows.forEach(r => uniqueLocsTemp[lineId].add(r.data['Location']?.trim() || ''))
+      validationResults[sheet].invalidRows.forEach(r => uniqueLocsTemp[lineId].add(r.data['Location']?.trim() || ''))
+    })
+    Object.values(uniqueLocsTemp).forEach(set => {
+      w += set.size
     })
   }
 
@@ -613,11 +821,11 @@ export default function ImportExcel() {
                 </button>
                 <button
                   className="btn-primary"
-                  disabled
-                  title="Fitur Import akan ditambahkan di tahap berikutnya"
-                  style={{ padding: '8px 16px', opacity: 0.5, cursor: 'not-allowed' }}
+                  onClick={handlePrepareImport}
+                  disabled={isImporting}
+                  style={{ padding: '8px 16px' }}
                 >
-                  Import Sekarang
+                  {isImporting ? 'Menyiapkan...' : 'Import Sekarang'}
                 </button>
               </div>
             </div>
@@ -626,6 +834,29 @@ export default function ImportExcel() {
         )}
 
       </main>
+
+      {showConfirm && (
+        <ConfirmDeleteModal
+          title="Konfirmasi Import & Reset Data"
+          itemLabel={`${deleteStats.components} baris data lama dan ${deleteStats.locations} lokasi lama`}
+          warningText={`Tindakan ini akan MENGHAPUS PERMANEN ${deleteStats.components} baris data & ${deleteStats.locations} lokasi yang ada sekarang di SEMUA Line (data lama TIDAK masuk Recycle Bin, tidak bisa dipulihkan), lalu menulis ${step3ValidTotal + step3InvalidTotal} baris data baru dari file Excel dan membuat ${w} lokasi baru. Lanjutkan?`}
+          confirmText="Ya, Hapus & Import"
+          onConfirm={handleCommitImport}
+          onCancel={() => setShowConfirm(false)}
+        />
+      )}
+
+      {isImporting && importProgress && (
+        <div className="modal-backdrop" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', padding: '24px', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', textAlign: 'center' }}>
+            <div style={{ width: '40px', height: '40px', border: '3px solid #f3f3f3', borderTop: '3px solid #0969da', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }}></div>
+            <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+            <h3 style={{ margin: '0 0 8px', color: '#1f2328' }}>Proses Import Sedang Berjalan</h3>
+            <p style={{ margin: 0, color: '#5f6368', fontSize: '14px' }}>{importProgress}</p>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
