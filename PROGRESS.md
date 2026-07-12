@@ -317,13 +317,70 @@
     - Tombol "Import Sekarang" tetap disabled sesuai scope Tahap 2 — belum
       ada tulis-data ke Firestore sama sekali.
 
-  - ⬜ **Tahap 3 (BELUM DIKERJAKAN): Commit** — hapus permanen data lama
-    (`components`+`locations`, exclude `users`) → tulis data baru + auto-
-    create Location → tandai dengan `importBatchId`. Ini tahap PALING
-    berisiko (destructive & irreversible untuk data lama, lihat §5
-    Ringkasan Handoff Sesi 2 soal trade-off yang sudah disetujui user).
-  - ⬜ Tahap 4: Undo Import (hapus semua dokumen dengan `importBatchId`
-    tertentu).
+  - ✅ **Tahap 3 (Commit: hapus data lama + tulis data baru + auto-create
+    Location) — SELESAI & TERVERIFIKASI**:
+    - Urutan eksekusi: hitung X/Y/Z/W → dialog konfirmasi (angka eksplisit,
+      bukan "OK" generik) → hapus permanen `components`+`locations` lama
+      (exclude `users`) → auto-create `locations` baru (skema
+      `${lineId}__${slug}`, baris tanpa Location dikelompokkan ke
+      placeholder "Belum Ada Lokasi" per Line, supaya tidak ada baris
+      yatim) → tulis `components` baru. Semua pakai `writeBatch` dipecah
+      500 dokumen/batch, sekuensial (bukan `Promise.all`).
+    - `importBatchId` (1 UUID per sesi commit) ditandai di SEMUA dokumen
+      baru — baik `components` MAUPUN `locations` — supaya Tahap 4 (Undo)
+      nanti bisa bersihkan keduanya sekaligus.
+    - Keputusan bisnis: baris dengan "Kesalahan Format" (dari Tahap 2)
+      TETAP ikut ter-import apa adanya (Qty non-angka disimpan sebagai
+      string mentah, bukan dibuang/dikosongkan) — commit TIDAK diblokir
+      oleh baris bermasalah, admin benerin manual belakangan di grid.
+    - 🐛 **Bug besar ditemukan & diperbaiki**: percobaan pertama
+      menghasilkan SEMUA baris kosong tak berisi di grid meski jumlah
+      baris & lokasi sudah benar. Root cause: `ImportExcel.jsx` menulis
+      field ke Firestore pakai nama header Excel APA ADANYA (`"Sub-Machine"`,
+      `"Item Code"`, dst — dengan spasi/tanda hubung), padahal
+      `LinePage.jsx`/grid membaca properti pakai konvensi camelCase
+      (`subMachine`, `itemCode`, dst) — mismatch total, data tersimpan
+      tapi di key yang salah. Fix: kamus `fieldMapping` (hardcoded, "Anti-
+      Corruption Layer") ditambahkan di `handleCommitImport` buat
+      menerjemahkan SEMUA 11 field (10 via kamus + `qty` ditangani
+      terpisah karena butuh type-casting Number) sebelum `batch.set()`.
+    - **Pelajaran penting buat sesi berikutnya**: kalau AI editor kasih
+      progress report/insiden-report yang kedengaran meyakinkan (istilah
+      teknis kayak "Anti-Corruption Layer"), TETAP minta kode asli
+      `fieldMapping`-nya buat dicek satu-satu terhadap daftar 11 kolom —
+      jangan percaya cuma dari narasinya. Setelah dicek: SEMUA 11 field
+      benar ter-mapping (`subMachine`, `itemCode`, `category`, `part`,
+      `description`, `spesification`, `warehouseName`, `status`, `foto`,
+      `qtyWh`, `qty`), dikonfirmasi juga oleh user lewat cek visual grid
+      (semua kolom, bukan cuma sebagian) SETELAH re-run commit dari nol.
+    - Diverifikasi hasil akhir dengan `UjiExport.xlsx`: 3730 baris (LINE 1:
+      1134, LINE 2: 1089, LINE 3: 567, LINE 4: 940) + 85 lokasi baru,
+      semua cocok dengan proyeksi manual Claude sebelum commit dijalankan.
+    - **Known limitation (BUKAN bug kode) ditemukan**: preview hover/tap
+      foto Gdrive gagal untuk sebagian besar link asli, meski link sudah
+      di-share publik dengan benar (sudah dicek & dikonfirmasi). Kode
+      aplikasi SUDAH benar (pakai `<img src>` native + `onError`, BUKAN
+      `fetch()`/`XHR` — sempat dicurigai salah, tapi terbukti dari kode
+      asli `FotoDisplay` di LinePage.jsx itu dugaan keliru). Diagnosa lewat
+      DevTools Network tab: request thumbnail redirect 302 berhasil, tapi
+      request lanjutannya ke `lh3.googleusercontent.com` gagal dengan
+      `net::ERR_BLOCKED_BY_ORB` (Opaque Response Blocking, fitur keamanan
+      Chrome). Dugaan penyebab: Google Drive butuh cookie session buat
+      endpoint thumbnail-nya, browser modern (Chrome dkk) makin ketat
+      blokir cookie pihak-ketiga by default, jadi Google balikin
+      halaman HTML (bukan bytes gambar) → Chrome blokir lewat ORB sebelum
+      sempat dirender. Ini SIFATNYA STRUKTURAL (soal domain app vs domain
+      Google, bukan soal localhost vs hosting) — kemungkinan besar TETAP
+      terjadi setelah production deploy, tidak otomatis hilang. Klik-buka-
+      link langsung ke Drive tetap berfungsi normal — cuma preview visual
+      hover/tap yang kena. Solusi permanen (belum dikerjakan, backlog
+      terpisah): proxy server-side via Firebase Cloud Functions yang ambil
+      gambar lewat Google Drive API (server-to-server, tidak kena batasan
+      cookie browser) lalu disajikan dari domain sendiri. Kalau muncul
+      lagi di sesi depan, JANGAN dikira bug baru dari kode aplikasi.
+
+  - ⬜ **Tahap 4 (BELUM DIKERJAKAN): Undo Import** — hapus semua dokumen
+    (`components` DAN `locations`) dengan `importBatchId` tertentu.
   2. Sambungkan Dashboard ke data Firestore asli (SENGAJA diletakkan
      PALING TERAKHIR, setelah Import — supaya Dashboard langsung dibangun
      & dites terhadap data final/asli, bukan data dummy yang toh akan
@@ -343,7 +400,7 @@
   Location di Line miliknya minimal sekali saat online (misal di awal shift)
   sebelum bekerja di titik dengan sinyal buruk/tanpa sinyal.
 
-- 🔄 Sedang dikerjakan: export/import Excel (Tahap 1 & 2 selesai & terverifikasi, Tahap 3 belum dimulai)
+- 🔄 Sedang dikerjakan: export/import Excel (Tahap 1-3 selesai & terverifikasi, Tahap 4/Undo Import belum dimulai)
 - ⬜ Belum: dashboard chart & checklist publik (data masih placeholder, belum tersambung
   ke Firestore asli — masih dummy)
 - ⬜ Belum: PWA/offline persistence penuh (masih pakai `enableIndexedDbPersistence`, ada
