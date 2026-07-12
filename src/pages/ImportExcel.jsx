@@ -10,12 +10,20 @@ const LINE_OPTIONS = [
   { id: 'line4', label: 'Line 4' },
 ]
 
+const STANDARD_COLUMNS = [
+  'Plant', 'Location', 'Sub-Machine', 'Item Code', 'Category', 
+  'Part', 'Description ( Bella )', 'Spesification', 'Warehouse Name', 
+  'Status', 'Qty', 'Foto', 'Qty WH'
+]
+
 export default function ImportExcel() {
-  const [step, setStep] = useState(1) // 1: Upload, 2: Mapping & Preview
+  const [step, setStep] = useState(1) // 1: Upload, 2: Mapping & Preview, 3: Validation Report
   const [fileName, setFileName] = useState('')
   const [sheetNames, setSheetNames] = useState([])
   const [sheetMapping, setSheetMapping] = useState({}) 
+  const [columnMapping, setColumnMapping] = useState({}) 
   const [parsedData, setParsedData] = useState({}) 
+  const [validationResults, setValidationResults] = useState({}) 
   const [previewLine, setPreviewLine] = useState('line1')
   const [isDragging, setIsDragging] = useState(false)
   
@@ -63,6 +71,7 @@ export default function ImportExcel() {
         setSheetNames(names)
         
         const initialMapping = {}
+        const initialColMapping = {}
         const dataMap = {}
         
         names.forEach(name => {
@@ -75,21 +84,25 @@ export default function ImportExcel() {
           else if (lower.includes('4') || lower.includes('empat')) guessed = 'line4'
           initialMapping[name] = guessed
 
-          // Parse data (raw 2D array)
+          // Parse data
           const sheet = workbook.Sheets[name]
           const sheetData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
           
-          // Batasi header maksimal 13 kolom
           const rawHeaders = sheetData[0] || []
           const headers = rawHeaders.slice(0, 13)
           
-          // Batasi tiap baris maksimal 13 kolom, lalu filter baris yang benar-benar kosong
+          const colMap = {}
+          STANDARD_COLUMNS.forEach(stdCol => {
+            const match = headers.find(h => h && h.trim().toLowerCase() === stdCol.toLowerCase())
+            colMap[stdCol] = match || ''
+          })
+          initialColMapping[name] = colMap
+
           const rows = []
           for (let i = 1; i < sheetData.length; i++) {
             const rawRow = sheetData[i] || []
             const truncatedRow = rawRow.slice(0, 13)
             
-            // Cek apakah truncatedRow punya minimal 1 field terisi
             const hasData = truncatedRow.some(cell => {
               if (cell === null || cell === undefined) return false
               if (typeof cell === 'string') return cell.trim() !== ''
@@ -97,7 +110,7 @@ export default function ImportExcel() {
             })
             
             if (hasData) {
-              rows.push(truncatedRow)
+              rows.push({ data: truncatedRow, originalIndex: i + 1 })
             }
           }
           
@@ -105,9 +118,9 @@ export default function ImportExcel() {
         })
 
         setSheetMapping(initialMapping)
+        setColumnMapping(initialColMapping)
         setParsedData(dataMap)
         
-        // Auto-select first matched line for preview
         const firstMatch = Object.values(initialMapping).find(v => v !== '')
         if (firstMatch) setPreviewLine(firstMatch)
         
@@ -125,21 +138,109 @@ export default function ImportExcel() {
     setSheetMapping(prev => ({ ...prev, [sheet]: lineId }))
   }
 
-  // Derived state for preview
-  // Combine all sheets mapped to the selected previewLine
+  const handleColMappingChange = (sheet, stdCol, rawVal) => {
+    setColumnMapping(prev => ({
+      ...prev,
+      [sheet]: {
+        ...prev[sheet],
+        [stdCol]: rawVal
+      }
+    }))
+  }
+
+  const runValidation = () => {
+    const results = {}
+    sheetNames.forEach(name => {
+      const lineId = sheetMapping[name]
+      if (!lineId) return // ignore if sheet is skipped
+      
+      const mapping = columnMapping[name]
+      const rawHeaders = parsedData[name].headers
+      
+      const indexMap = {}
+      Object.entries(mapping).forEach(([stdCol, rawName]) => {
+        if (rawName) {
+          indexMap[stdCol] = rawHeaders.indexOf(rawName)
+        }
+      })
+      
+      const validRows = []
+      const invalidRows = []
+      
+      parsedData[name].rows.forEach(rowObj => {
+        const row = rowObj.data
+        const errors = []
+        
+        const getVal = (stdCol) => {
+          const idx = indexMap[stdCol]
+          if (idx !== undefined && idx >= 0) {
+            const v = row[idx]
+            if (typeof v === 'string') return v.trim()
+            if (v !== undefined && v !== null) return String(v).trim()
+          }
+          return ''
+        }
+
+        const mappedData = {}
+        STANDARD_COLUMNS.forEach(col => { mappedData[col] = getVal(col) })
+
+        // Validation Rules
+        const statusVal = mappedData['Status']
+        if (statusVal) {
+          if (statusVal !== 'Existing' && statusVal !== 'Tidak Aktif') {
+            errors.push({ col: 'Status', message: `Status tidak dikenali: '${statusVal}'` })
+          }
+        }
+        
+        const qtyVal = mappedData['Qty']
+        if (qtyVal) {
+          const num = Number(qtyVal.replace(',', '.')) // handle possible comma decimals
+          if (isNaN(num)) {
+            errors.push({ col: 'Qty', message: `Format Qty harus berupa angka, mendapat: '${qtyVal}'` })
+          }
+        }
+
+        if (errors.length > 0) {
+          invalidRows.push({ 
+            originalRowIndex: rowObj.originalIndex, 
+            line: LINE_OPTIONS.find(l => l.id === lineId)?.label, 
+            errors, 
+            data: mappedData 
+          })
+        } else {
+          validRows.push({ 
+            originalRowIndex: rowObj.originalIndex, 
+            line: lineId, 
+            data: mappedData 
+          })
+        }
+      })
+      
+      results[name] = { validRows, invalidRows }
+    })
+    
+    setValidationResults(results)
+    setStep(3)
+  }
+
+  const cancelImport = () => {
+    setStep(1)
+    setFileName('')
+    setParsedData({})
+    setValidationResults({})
+  }
+
+  // --- Derived State for Step 2 UI ---
   const previewSheets = sheetNames.filter(name => sheetMapping[name] === previewLine)
   let combinedHeaders = []
   let combinedRows = []
-  
   if (previewSheets.length > 0) {
-    // For simplicity of raw preview, just use the headers of the first matched sheet
     combinedHeaders = parsedData[previewSheets[0]]?.headers || []
     previewSheets.forEach(sheet => {
-      combinedRows = combinedRows.concat(parsedData[sheet]?.rows || [])
+      combinedRows = combinedRows.concat(parsedData[sheet]?.rows.map(r => r.data) || [])
     })
   }
 
-  // Calculate totals
   const totalRowsByLine = { line1: 0, line2: 0, line3: 0, line4: 0 }
   sheetNames.forEach(sheet => {
     const targetLine = sheetMapping[sheet]
@@ -148,6 +249,27 @@ export default function ImportExcel() {
     }
   })
   const grandTotal = Object.values(totalRowsByLine).reduce((a, b) => a + b, 0)
+
+  // --- Derived State for Step 3 UI ---
+  let step3ValidTotal = 0
+  let step3InvalidTotal = 0
+  const step3ByLine = { line1: { valid: 0, invalid: 0 }, line2: { valid: 0, invalid: 0 }, line3: { valid: 0, invalid: 0 }, line4: { valid: 0, invalid: 0 } }
+  let allInvalidRows = []
+
+  if (step === 3) {
+    sheetNames.forEach(sheet => {
+      const lineId = sheetMapping[sheet]
+      if (lineId && validationResults[sheet]) {
+        const vCount = validationResults[sheet].validRows.length
+        const ivCount = validationResults[sheet].invalidRows.length
+        step3ValidTotal += vCount
+        step3InvalidTotal += ivCount
+        step3ByLine[lineId].valid += vCount
+        step3ByLine[lineId].invalid += ivCount
+        allInvalidRows = allInvalidRows.concat(validationResults[sheet].invalidRows)
+      }
+    })
+  }
 
   return (
     <div style={{ minHeight: '100svh', background: '#f8f9fa' }}>
@@ -158,7 +280,9 @@ export default function ImportExcel() {
           </button>
           <div>
             <h1 style={{ fontSize: '20px', fontWeight: 600, color: '#1f2328', margin: 0 }}>Import Data Excel</h1>
-            <p style={{ fontSize: '13px', color: '#5f6368', margin: '4px 0 0' }}>Tahap 1 dari 3: Pemilihan File & Preview</p>
+            <p style={{ fontSize: '13px', color: '#5f6368', margin: '4px 0 0' }}>
+              Tahap {step} dari 3: {step === 1 ? 'Pemilihan File' : step === 2 ? 'Mapping & Preview' : 'Validasi Data'}
+            </p>
           </div>
         </div>
       </header>
@@ -225,6 +349,46 @@ export default function ImportExcel() {
                         <option key={opt.id} value={opt.id}>{opt.label}</option>
                       ))}
                     </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Pemetaan Kolom */}
+            <div style={{ background: '#fff', border: '1px solid #d0d7de', borderRadius: '6px', overflow: 'hidden' }}>
+              <div style={{ padding: '16px 24px', borderBottom: '1px solid #e1e4e8', display: 'flex', gap: '16px', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '14px', color: '#1f2328' }}>Pemetaan Kolom</h3>
+                  <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#5f6368' }}>Periksa kembali kolom asli mana yang akan dipetakan ke kolom sistem.</p>
+                </div>
+              </div>
+              
+              <div style={{ padding: '0' }}>
+                {sheetNames.filter(s => sheetMapping[s]).map(sheet => (
+                  <div key={`colmap-${sheet}`} style={{ borderBottom: '1px solid #e1e4e8' }}>
+                    <div style={{ background: '#f6f8fa', padding: '8px 24px', fontWeight: 600, fontSize: '13px', borderBottom: '1px solid #d0d7de' }}>
+                      Mapping untuk Sheet: {sheet} (Target: {LINE_OPTIONS.find(l => l.id === sheetMapping[sheet])?.label})
+                    </div>
+                    <div style={{ padding: '16px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                      {STANDARD_COLUMNS.map(stdCol => (
+                        <div key={stdCol} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label style={{ fontSize: '12px', fontWeight: 600, color: '#5f6368' }}>
+                            {stdCol} {['Sub-Machine', 'Category', 'Part', 'Spesification', 'Status', 'Qty', 'Foto'].includes(stdCol) && <span style={{color: '#cf222e'}}>*</span>}
+                          </label>
+                          <select
+                            className="grid-cell-input"
+                            style={{ padding: '6px 8px', border: '1px solid #d0d7de', borderRadius: '4px', background: '#fff', fontSize: '13px' }}
+                            value={columnMapping[sheet][stdCol] || ''}
+                            onChange={e => handleColMappingChange(sheet, stdCol, e.target.value)}
+                          >
+                            <option value="">-- Tidak ada --</option>
+                            {parsedData[sheet].headers.map((h, i) => (
+                              <option key={i} value={h}>{h}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -301,33 +465,166 @@ export default function ImportExcel() {
             {/* Action Bar */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', background: '#fff', border: '1px solid #d0d7de', borderRadius: '6px' }}>
               <div style={{ fontSize: '14px', color: '#1f2328' }}>
-                Total keseluruhan data yang akan diimpor: <strong>{grandTotal} baris</strong>
+                Total keseluruhan data: <strong>{grandTotal} baris</strong>
               </div>
               <div style={{ display: 'flex', gap: '12px' }}>
                 <button
                   className="btn-secondary"
-                  onClick={() => {
-                    setStep(1)
-                    setFileName('')
-                    setParsedData({})
-                  }}
+                  onClick={cancelImport}
                   style={{ padding: '8px 16px' }}
                 >
                   Batal
                 </button>
                 <button
                   className="btn-primary"
-                  disabled
-                  title="Fitur mapping kolom akan ditambahkan di tahap berikutnya"
-                  style={{ padding: '8px 16px', opacity: 0.5, cursor: 'not-allowed' }}
+                  onClick={runValidation}
+                  style={{ padding: '8px 16px' }}
                 >
-                  Lanjut ke Mapping Kolom
+                  Lanjut ke Validasi Data
                 </button>
               </div>
             </div>
 
           </div>
         )}
+
+        {step === 3 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            
+            {/* Laporan Keseluruhan & Per Line */}
+            <div style={{ background: '#fff', border: '1px solid #d0d7de', borderRadius: '6px', overflow: 'hidden' }}>
+              <div style={{ padding: '16px 24px', borderBottom: '1px solid #e1e4e8', background: '#f6f8fa' }}>
+                <h3 style={{ margin: 0, fontSize: '14px', color: '#1f2328' }}>Ringkasan Hasil Validasi</h3>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#5f6368' }}>Pemeriksaan kelengkapan dan format data berdasarkan kolom wajib.</p>
+              </div>
+              
+              <div style={{ padding: '24px', display: 'flex', gap: '24px', borderBottom: '1px solid #e1e4e8' }}>
+                <div style={{ flex: 1, padding: '16px', background: '#fafbfc', border: '1px solid #d0d7de', borderRadius: '6px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '12px', color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Format Bersih</div>
+                  <div style={{ fontSize: '32px', fontWeight: 600, color: '#1a7f37', margin: '8px 0' }}>{step3ValidTotal}</div>
+                  <div style={{ fontSize: '12px', color: '#5f6368' }}>Baris</div>
+                </div>
+                <div style={{ flex: 1, padding: '16px', background: '#fafbfc', border: '1px solid #d0d7de', borderRadius: '6px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '12px', color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ada Kesalahan Format</div>
+                  <div style={{ fontSize: '32px', fontWeight: 600, color: step3InvalidTotal > 0 ? '#cf222e' : '#5f6368', margin: '8px 0' }}>{step3InvalidTotal}</div>
+                  <div style={{ fontSize: '12px', color: '#5f6368' }}>Baris</div>
+                </div>
+                <div style={{ flex: 1, padding: '16px', background: '#fafbfc', border: '1px solid #d0d7de', borderRadius: '6px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '12px', color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Keseluruhan</div>
+                  <div style={{ fontSize: '32px', fontWeight: 600, color: '#1f2328', margin: '8px 0' }}>{step3ValidTotal + step3InvalidTotal}</div>
+                  <div style={{ fontSize: '12px', color: '#5f6368' }}>Baris</div>
+                </div>
+              </div>
+
+              <div style={{ padding: '0' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ background: '#f6f8fa', borderBottom: '1px solid #e1e4e8' }}>
+                      <th style={{ padding: '10px 24px', textAlign: 'left', fontWeight: 600, color: '#5f6368' }}>Line</th>
+                      <th style={{ padding: '10px 24px', textAlign: 'right', fontWeight: 600, color: '#5f6368' }}>Bersih</th>
+                      <th style={{ padding: '10px 24px', textAlign: 'right', fontWeight: 600, color: '#5f6368' }}>Error Format</th>
+                      <th style={{ padding: '10px 24px', textAlign: 'right', fontWeight: 600, color: '#5f6368' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {LINE_OPTIONS.map(opt => {
+                      const stats = step3ByLine[opt.id]
+                      const sum = stats.valid + stats.invalid
+                      if (sum === 0) return null
+                      return (
+                        <tr key={opt.id} style={{ borderBottom: '1px solid #e1e4e8' }}>
+                          <td style={{ padding: '10px 24px', fontWeight: 600 }}>{opt.label}</td>
+                          <td style={{ padding: '10px 24px', textAlign: 'right', color: '#1a7f37' }}>{stats.valid}</td>
+                          <td style={{ padding: '10px 24px', textAlign: 'right', color: stats.invalid > 0 ? '#cf222e' : '#5f6368' }}>{stats.invalid}</td>
+                          <td style={{ padding: '10px 24px', textAlign: 'right', fontWeight: 600 }}>{sum}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Tabel Error Detail */}
+            {allInvalidRows.length > 0 && (
+              <div style={{ background: '#fff', border: '1px solid #cf222e', borderRadius: '6px', overflow: 'hidden' }}>
+                <div style={{ padding: '16px 24px', borderBottom: '1px solid #e1e4e8', background: '#ffebe9', display: 'flex', alignItems: 'center' }}>
+                  <h3 style={{ margin: 0, fontSize: '14px', color: '#cf222e', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    Detail Baris dengan Kesalahan Format
+                  </h3>
+                </div>
+                
+                <div style={{ overflowX: 'auto', maxHeight: '600px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ position: 'sticky', top: 0, background: '#f6f8fa', padding: '10px 16px', textAlign: 'center', fontWeight: 600, color: '#5f6368', borderBottom: '1px solid #d0d7de', width: '80px' }}>Brs Excel</th>
+                        <th style={{ position: 'sticky', top: 0, background: '#f6f8fa', padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#5f6368', borderBottom: '1px solid #d0d7de', width: '100px' }}>Line</th>
+                        <th style={{ position: 'sticky', top: 0, background: '#f6f8fa', padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#5f6368', borderBottom: '1px solid #d0d7de', width: '180px' }}>Kolom Error</th>
+                        <th style={{ position: 'sticky', top: 0, background: '#f6f8fa', padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#5f6368', borderBottom: '1px solid #d0d7de' }}>Alasan Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allInvalidRows.map((inv, idx) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid #e1e4e8', background: idx % 2 === 0 ? '#fff' : '#fafbfc' }}>
+                          <td style={{ padding: '10px 16px', textAlign: 'center', fontWeight: 600, color: '#cf222e' }}>
+                            {inv.originalRowIndex}
+                          </td>
+                          <td style={{ padding: '10px 16px' }}>{inv.line}</td>
+                          <td style={{ padding: '10px 16px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {inv.errors.map((e, i) => (
+                                <span key={i} style={{ background: '#ffebe9', color: '#cf222e', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', display: 'inline-block', width: 'fit-content' }}>
+                                  {e.col}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td style={{ padding: '10px 16px', color: '#5f6368' }}>
+                            <ul style={{ margin: 0, paddingLeft: '16px' }}>
+                              {inv.errors.map((e, i) => (
+                                <li key={i}>{e.message}</li>
+                              ))}
+                            </ul>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Action Bar */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', background: '#fff', border: '1px solid #d0d7de', borderRadius: '6px' }}>
+              <div style={{ fontSize: '14px', color: '#1f2328', flex: 1 }}>
+                Seluruh baris di atas <strong>tetap akan diimpor</strong>, namun disarankan untuk merevisi nilai yang keliru di Excel agar data yang masuk terhindar dari format salah.
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  className="btn-secondary"
+                  onClick={() => setStep(2)}
+                  style={{ padding: '8px 16px' }}
+                >
+                  Kembali ke Mapping
+                </button>
+                <button
+                  className="btn-primary"
+                  disabled
+                  title="Fitur Import akan ditambahkan di tahap berikutnya"
+                  style={{ padding: '8px 16px', opacity: 0.5, cursor: 'not-allowed' }}
+                >
+                  Import Sekarang
+                </button>
+              </div>
+            </div>
+
+          </div>
+        )}
+
       </main>
     </div>
   )

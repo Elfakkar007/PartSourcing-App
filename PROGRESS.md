@@ -284,13 +284,44 @@
       Baca file sumber asli langsung kalau tersedia, jangan cuma percaya
       angka yang dilaporkan.
 
-  - ⬜ **Tahap 2 (SEDANG DIMULAI): Mapping kolom (auto-detect + bisa
-    disesuaikan manual) → validasi per baris → laporan error** — lihat
-    Spesifikasi §5 untuk aturan validasi (7 kolom wajib, pengecualian Qty
-    kalau Status = "Tidak Aktif").
-  - ⬜ Tahap 3: Commit — hapus permanen data lama (`components`+`locations`,
-    exclude `users`) → tulis data baru + auto-create Location → tandai
-    dengan `importBatchId`.
+  - ✅ **Tahap 2 (Mapping kolom + Validasi per baris) — SELESAI &
+    TERVERIFIKASI** di `ImportExcel.jsx`:
+    - Mapping: 13 kolom baku di-auto-detect dari header asli (exact match,
+      case-insensitive, trim), dengan UI dropdown per kolom untuk override
+      manual kalau auto-detect meleset. Mapping disimpan per-Line.
+    - **Keputusan bisnis penting (revisi dari rencana awal)**: validasi
+      import SENGAJA TIDAK mensyaratkan 7 kolom wajib terisi — ini beda
+      dari aturan "baris selesai" di grid (`isRowComplete`, Spesifikasi §5)
+      yang TETAP 7 kolom. Alasan: kelengkapan data adalah tugas anak
+      magang mengisi PROGRESIF lewat grid web setelah data masuk, bukan
+      syarat untuk bisa di-import. Baris boleh masuk sepenuhnya kosong di
+      semua kolom kecuali kolom itu sendiri (row kosong-total tetap
+      di-exclude, itu aturan Tahap 1, tidak berubah).
+    - Validasi yang TETAP jalan (hanya FORMAT, hanya kalau field terisi):
+      - Qty: kalau terisi, harus valid sebagai angka. Kalau bukan angka
+        (misal teks "lima"), di-flag "Kesalahan Format". Kalau kosong,
+        lolos tanpa syarat apapun (aturan lama "Qty boleh kosong kalau
+        Status = Tidak Aktif" sudah tidak relevan lagi & dihapus).
+      - Status: kalau terisi, harus PERSIS "Existing" atau "Tidak Aktif"
+        (case-sensitive, exact match). Nilai lain (typo/kapitalisasi beda)
+        di-flag "Status tidak dikenali: '<nilai asli>'". Kalau kosong,
+        lolos tanpa syarat.
+      - Kolom lain: bebas, tidak ada validasi format.
+    - Laporan diganti framing-nya dari "Lolos/Gagal Validasi" menjadi
+      "Baris dengan Kesalahan Format" (supaya tidak menyiratkan baris
+      tsb akan dibuang — baris begini TETAP akan ikut ter-import di
+      Tahap 3, cuma perlu perhatian ekstra).
+    - Diverifikasi user dengan `UjiExport.xlsx` (versi bersih, Status sudah
+      diperbaiki dari "Modifikasi" jadi cuma "Existing"/"Tidak Aktif") —
+      hasil aman, user konfirmasi lolos.
+    - Tombol "Import Sekarang" tetap disabled sesuai scope Tahap 2 — belum
+      ada tulis-data ke Firestore sama sekali.
+
+  - ⬜ **Tahap 3 (BELUM DIKERJAKAN): Commit** — hapus permanen data lama
+    (`components`+`locations`, exclude `users`) → tulis data baru + auto-
+    create Location → tandai dengan `importBatchId`. Ini tahap PALING
+    berisiko (destructive & irreversible untuk data lama, lihat §5
+    Ringkasan Handoff Sesi 2 soal trade-off yang sudah disetujui user).
   - ⬜ Tahap 4: Undo Import (hapus semua dokumen dengan `importBatchId`
     tertentu).
   2. Sambungkan Dashboard ke data Firestore asli (SENGAJA diletakkan
@@ -312,7 +343,7 @@
   Location di Line miliknya minimal sekali saat online (misal di awal shift)
   sebelum bekerja di titik dengan sinyal buruk/tanpa sinyal.
 
-- 🔄 Sedang dikerjakan: export/import Excel (Tahap 1 selesai & terverifikasi, Tahap 2 dimulai)
+- 🔄 Sedang dikerjakan: export/import Excel (Tahap 1 & 2 selesai & terverifikasi, Tahap 3 belum dimulai)
 - ⬜ Belum: dashboard chart & checklist publik (data masih placeholder, belum tersambung
   ke Firestore asli — masih dummy)
 - ⬜ Belum: PWA/offline persistence penuh (masih pakai `enableIndexedDbPersistence`, ada
