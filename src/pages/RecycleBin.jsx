@@ -4,6 +4,8 @@ import { db } from '../lib/firebase'
 import { useToast } from '../contexts/ToastContext'
 import { useNavigate } from 'react-router-dom'
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
+import { useAuth } from '../contexts/AuthContext'
+import { logActivity } from '../lib/activityLog'
 
 export default function RecycleBin() {
   const [rows, setRows] = useState([])
@@ -22,6 +24,7 @@ export default function RecycleBin() {
   
   const { addToast } = useToast()
   const navigate = useNavigate()
+  const { currentUser } = useAuth()
 
   // Computed filter options
   const uniqueLines = Array.from(new Set(rows.map(r => r.line).filter(Boolean))).sort()
@@ -113,6 +116,8 @@ export default function RecycleBin() {
   }, [addToast])
 
   const handleRestore = (rowId) => {
+    const row = rows.find(r => r.id === rowId)
+    logActivity('pulihkan_baris', currentUser?.uid, { line: row?.line, count: 1 })
     const docRef = doc(db, 'components', rowId)
     updateDoc(docRef, {
       isDeleted: false,
@@ -125,6 +130,7 @@ export default function RecycleBin() {
 
   const handleBulkRestore = () => {
     if (selectedIds.length === 0) return
+    logActivity('bulk_pulihkan_baris', currentUser?.uid, { count: selectedIds.length })
     const batch = writeBatch(db)
     const count = selectedIds.length
     selectedIds.forEach(id => {
@@ -140,6 +146,11 @@ export default function RecycleBin() {
 
   const handleConfirmPermanentDelete = () => {
     if (!deleteTargetIds || deleteTargetIds.length === 0) return
+    logActivity(
+      deleteTargetIds.length > 1 ? 'bulk_hapus_permanen' : 'hapus_permanen',
+      currentUser?.uid,
+      { count: deleteTargetIds.length }
+    )
     const batch = writeBatch(db)
     const count = deleteTargetIds.length
     deleteTargetIds.forEach(id => {

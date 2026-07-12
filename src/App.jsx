@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import LinePage from './pages/LinePage'
 import AdminSettings from './pages/AdminSettings'
 import RecycleBin from './pages/RecycleBin'
+import ActivityLog from './pages/ActivityLog'
 
 function AdminRoute({ children }) {
   const { currentUser, userRole } = useAuth()
@@ -67,6 +68,14 @@ function App() {
               element={
                 <AdminRoute>
                   <RecycleBin />
+                </AdminRoute>
+              } 
+            />
+            <Route 
+              path="/admin/activity-log" 
+              element={
+                <AdminRoute>
+                  <ActivityLog />
                 </AdminRoute>
               } 
             />

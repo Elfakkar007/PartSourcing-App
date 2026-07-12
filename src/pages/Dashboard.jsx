@@ -345,6 +345,25 @@ export default function Dashboard() {
             {userRole === 'admin' && (
               <>
                 <button
+                  onClick={() => navigate('/admin/activity-log')}
+                  className="btn-secondary"
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '13px',
+                    color: '#1f2328',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Activity Log"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                  </svg>
+                  Activity Log
+                </button>
+                <button
                   onClick={() => navigate('/admin/recycle-bin')}
                   className="btn-secondary"
                   style={{

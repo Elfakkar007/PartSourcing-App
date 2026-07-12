@@ -8,6 +8,7 @@ import {
   addDoc, updateDoc, doc, setDoc, serverTimestamp, writeBatch
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
+import { logActivity } from '../lib/activityLog'
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
 
 /* ------------------------------------------------------------------ */
@@ -1257,6 +1258,10 @@ export default function LinePage() {
   async function handleAddRow() {
     if (!canEdit || addingRow) return
     setAddingRow(true)
+    logActivity('tambah_baris', currentUser?.uid, {
+      line: lineId,
+      locationName: activeLocationName || null
+    })
     addDoc(
       collection(db, 'components'),
       makeEmptyRow(lineId, activeLocation, currentUser?.uid)
@@ -1272,6 +1277,11 @@ export default function LinePage() {
   // ---- Bulk Add ----
   function handleBulkAdd(count) {
     if (!canEdit || count < 1) return
+    logActivity('bulk_tambah_baris', currentUser?.uid, {
+      count,
+      line: lineId,
+      locationName: activeLocationName || null
+    })
     const batch = writeBatch(db)
     for (let i = 0; i < count; i++) {
       const newDocRef = doc(collection(db, 'components'))
@@ -1289,6 +1299,10 @@ export default function LinePage() {
   // ---- Duplicate row ----
   function handleDuplicate(row) {
     if (!canEdit) return
+    logActivity('duplikat_baris', currentUser?.uid, {
+      line: lineId,
+      locationName: activeLocationName || null
+    })
     const { id, createdAt, lastUpdated, ...data } = row
     addDoc(collection(db, 'components'), {
       ...data,
@@ -1307,6 +1321,11 @@ export default function LinePage() {
   // ---- Delete (soft delete) ----
   function handleDelete() {
     if (!canEdit || deleteTargetIds.length === 0) return
+    logActivity('bulk_hapus_baris', currentUser?.uid, {
+      count: deleteTargetIds.length,
+      line: lineId,
+      locationName: activeLocationName || null
+    })
     const batch = writeBatch(db)
     deleteTargetIds.forEach((rowId) => {
       const docRef = doc(db, 'components', rowId)
@@ -1507,6 +1526,11 @@ export default function LinePage() {
       addToast(`Lokasi '${trimmedName}' sudah ada di Line ini.`, 'error')
       return
     }
+
+    logActivity('tambah_lokasi', currentUser?.uid, {
+      locationName: trimmedName,
+      line: lineId
+    })
 
     const docRef = doc(db, 'locations', id)
     
