@@ -188,20 +188,50 @@
     dari `handleAddRow`/`handleBulkAdd`/`handleDuplicate`/`handleDelete`
     yang sudah fire-and-forget dari awal) — sudah diverifikasi dari kode.
 
+- ✅ **SELESAI & TERVERIFIKASI: Log Aktivitas**
+
+  - Helper generik `src/lib/activityLog.js` — fungsi `logActivity(action,
+    userId, extra)`, fire-and-forget (addDoc ke collection `activityLog`
+    tanpa await), dipakai bersama oleh LinePage.jsx dan RecycleBin.jsx
+    (dulunya sempat ada versi lokal duplikat di LinePage.jsx, sudah
+    di-extract jadi 1 sumber).
+  - Tercatat (aksi besar saja, BUKAN tiap edit cell individual, sesuai
+    keputusan user): tambah_baris, bulk_tambah_baris, duplikat_baris,
+    bulk_hapus_baris (dipakai juga untuk hapus 1 baris, cuma beda `count`),
+    tambah_lokasi, pulihkan_baris, bulk_pulihkan_baris, hapus_permanen,
+    bulk_hapus_permanen.
+  - Security Rules `activityLog`: create hanya kalau `userId` di payload
+    sama dengan `request.auth.uid`, update & delete permanen diblokir total
+    (`if false`) — log bersifat immutable, tidak bisa diubah/dihapus
+    siapapun termasuk admin, supaya bisa dipercaya sebagai audit trail.
+  - Halaman `/admin/activity-log` (AdminRoute): tabel lintas semua Line,
+    query `limit(200)` + `orderBy('timestamp','desc')` (cegah beban read
+    berlebih), label Aksi diterjemahkan ke Bahasa Indonesia yang mudah
+    dibaca, kolom Detail gabungkan info Line/Location/count, filter
+    dropdown Line & Aksi (client-side), resolve userId → nama/email (reuse
+    pola dari RecycleBin.jsx). 100% read-only, tidak ada aksi edit/hapus.
+    Tombol akses dari Dashboard (ikon jam, khusus admin) sudah ditambahkan.
+  - Diverifikasi manual oleh user — semua aksi ter-track dengan benar,
+    filter jalan, redirect intern juga aman.
+  - Catatan proses: AI editor sempat 2x ikut mengedit PROGRESS.md meski
+    sudah diminta tidak — kalau kejadian lagi, pertimbangkan keluarkan
+    PROGRESS.md dari akses AI editor (taruh di luar folder project atau
+    `.gitignore`).
+
 - ⬜ **Backlog berikutnya (urutan final disepakati, belum dikerjakan sama sekali):**
-  1. Log Aktivitas (siapa-ubah-apa-kapan secara umum, bukan cuma delete)
-  2. Kolom Category → combobox/autocomplete (cegah typo "beraker" vs
+  1. Kolom Category → combobox/autocomplete (cegah typo "beraker" vs
      "Breaker", tetap bisa tambah kategori baru bebas)
-  3. Export/Import Excel (fitur besar, lihat Spesifikasi §8: preview,
+  2. Export/Import Excel (fitur besar, lihat Spesifikasi §8: preview,
      mapping kolom manual, validasi per baris, undo per batch, export
      per-Line & gabungan 4 sheet) — akan jadi proses "reset bersih" data
      testing/dummy yang ada sekarang, digantikan data asli dari Excel user
-  4. Sambungkan Dashboard ke data Firestore asli (SENGAJA diletakkan
+  3. Sambungkan Dashboard ke data Firestore asli (SENGAJA diletakkan
      PALING TERAKHIR, setelah Import — supaya Dashboard langsung dibangun
      & dites terhadap data final/asli, bukan data dummy yang toh akan
      disapu bersih; menghindari kerja & testing dua kali) — breakdown per
      Category harus baca nilai unik dari data real + warna berbasis hash
      nama kategori, BUKAN hardcode/urutan alfabetis
+
 
 
 - ℹ️ **Keterbatasan cache offline yang perlu diketahui (bukan bug)**: jika
