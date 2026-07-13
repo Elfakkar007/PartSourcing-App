@@ -9,6 +9,7 @@ import AdminSettings from './pages/AdminSettings'
 import RecycleBin from './pages/RecycleBin'
 import ActivityLog from './pages/ActivityLog'
 import ImportExcel from './pages/ImportExcel'
+import ExportExcel from './pages/ExportExcel'
 
 function AdminRoute({ children }) {
   const { currentUser, userRole } = useAuth()
@@ -87,6 +88,14 @@ function App() {
                 element={
                   <AdminRoute>
                     <ImportExcel />
+                  </AdminRoute>
+                } 
+              />
+              <Route 
+                path="/admin/export" 
+                element={
+                  <AdminRoute>
+                    <ExportExcel />
                   </AdminRoute>
                 } 
               />

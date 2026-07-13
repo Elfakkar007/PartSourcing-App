@@ -247,11 +247,16 @@
     `type: 'text'` lain (Sub-Machine, Part, Spesification, dst) TETAP pakai
     `<textarea>` seperti semula, tidak ikut berubah.
 
-- 🔄 **SEDANG DIKERJAKAN: Export/Import Excel** (fitur besar, lihat
-  Spesifikasi §8: preview, mapping kolom manual, validasi per baris, undo
-  per batch, export per-Line & gabungan 4 sheet) — akan jadi proses "reset
-  bersih" data testing/dummy yang ada sekarang, digantikan data asli dari
-  Excel user.
+- 🔄 **Export/Import Excel** (fitur besar, Spesifikasi §8, punya 2 ARAH
+  TERPISAH — jangan disamakan): (A) **Import** — upload → preview →
+  mapping kolom manual → validasi per baris → commit → undo per batch;
+  (B) **Export** — generate file Excel dari data yang ada, per-Line &
+  gabungan 4 sheet, dengan preview sebelum download. Import dipakai lebih
+  dulu sebagai proses "reset bersih" data testing/dummy digantikan data
+  asli dari Excel user.
+  - ✅ **Arah (A) Import — SELESAI SELURUHNYA (Tahap 1-4)**, lihat detail
+    tiap tahap di bawah.
+  - ⬜ **Arah (B) Export — BELUM DIMULAI SAMA SEKALI.** Ini next feature.
 
   - ✅ **Tahap 1 (Upload → Parse 4 sheet → Preview mentah, TANPA sentuh
     Firestore) — SELESAI & TERVERIFIKASI** di halaman `/admin/import`:
@@ -443,13 +448,75 @@
   Location di Line miliknya minimal sekali saat online (misal di awal shift)
   sebelum bekerja di titik dengan sinyal buruk/tanpa sinyal.
 
-- ✅ **Selesai & terverifikasi: Export/Import Excel (Tahap 1-4 LENGKAP)** —
+- ✅ **Selesai & terverifikasi: IMPORT Excel (Tahap 1-4 LENGKAP)** —
   Upload→Parse→Preview, Mapping+Validasi, Commit (hapus lama+tulis baru+
   auto-create Location), dan Undo per-batch. Lihat detail lengkap tiap
   tahap (termasuk semua bug & fix) di bagian atas.
+- ✅ **SELESAI & TERVERIFIKASI: EXPORT Excel** — halaman `/admin/export`,
+  arah terpisah dari Import (Spesifikasi §8): generate file Excel per-Line
+  (1 sheet) & gabungan (4 sheet), preview sebelum download, pakai SheetJS.
+  Ini juga fitur dengan bug terbanyak yang ketemu sebelum lolos — dicatat
+  lengkap di bawah biar polanya diingat:
+  - 🐛 **Bug 1 — Kolom `Qty` selalu kosong**: `fieldMapping` (dictionary
+    hasil invert dari `ImportExcel.jsx`) tidak punya key `'Qty'`, tapi ada
+    percabangan `if (stdCol === 'Qty')` DI DALAM loop
+    `Object.entries(fieldMapping).forEach(...)` — karena `Qty` tidak
+    pernah jadi key di object itu, percabangan itu tidak pernah kejalan.
+    Fix: `Qty` di-assign eksplisit DI LUAR loop.
+  - 🐛 **Bug 2 — Kolom `Qty WH` bisa kehilangan nilai `0` yang valid**:
+    bug kelas sama dengan Bug 1 tapi lolos dari review pertama — field ini
+    masih diproses lewat `row[camelKey] || ''` generic, dan `0` itu falsy
+    di JavaScript jadi ke-render sebagai string kosong. Fix: `Qty WH`
+    dikeluarkan dari `fieldMapping`, di-assign eksplisit dengan
+    `!== undefined && !== null` seperti `Qty`. **Pelajaran umum**: kalau
+    satu kolom numerik sudah diketahui rawan bug falsy-zero, cek SEMUA
+    kolom numerik lain yang polanya mirip — jangan cuma fix yang
+    dilaporkan lalu berhenti.
+  - 🐛 **Bug 3 (KRITIS, root cause dari "halaman kelihatan rusak total")
+    — `ExportExcel.jsx` pakai nama CSS custom property yang TIDAK ADA di
+    proyek**: proyek ini pakai Tailwind v4 dengan token warna di
+    `index.css` (`@theme` block) yang SEMUA diberi prefix `--color-`
+    (`--color-primary`, `--color-canvas`, `--color-border`, `--color-ink`,
+    `--color-ink-muted`, `--color-surface-subtle`, dst — lihat cara
+    `LinePage.jsx` yang sudah benar pakai `var(--color-border)` dst).
+    Tapi `ExportExcel.jsx` ditulis dengan asumsi nama tanpa prefix
+    (`var(--primary)`, `var(--canvas)`, `var(--border)`, dst), dan
+    beberapa malah nama yang TIDAK ADA sama sekali dengan nama apapun
+    (`var(--surface-sunken)`, `var(--rounded-lg)`, `var(--shadow-subtle)`
+    — `shadow-subtle` di proyek ini adalah CLASS CSS `.shadow-subtle`,
+    bukan custom property). Efeknya: browser menganggap semua referensi
+    `var()` itu invalid di computed-value time → nilai properti jatuh ke
+    default (background transparent, border-radius 0, shadow hilang).
+    Ini yang bikin tombol "Download Excel" nyaris tak terlihat (background
+    transparan, teks tetap putih dari class `.btn-primary`) dan seluruh
+    card/border di halaman kehilangan styling. **Pelajaran umum**: kalau
+    AI editor menulis halaman baru dengan `var(--nama-token)` yang
+    "kedengaran masuk akal" berdasarkan dokumen desain, WAJIB cross-check
+    ke `index.css`/`:root`/`@theme` ASLI proyek (atau ke halaman lain yang
+    sudah terbukti jalan) — nama token di dokumen desain (`DESIGN-*.md`)
+    tidak otomatis sama dengan nama variable yang benar-benar
+    diimplementasikan di kode.
+  - 🐛 **Bug 4 — Tidak ada link navigasi ke `/admin/export`**: route sudah
+    benar terpasang di `App.jsx`, tapi tidak ada tombol di `Dashboard.jsx`
+    yang mengarah ke sana (menu admin cuma ada Import/Activity
+    Log/Recycle Bin/Pengaturan Kolom) — halaman baru ini praktis tidak
+    bisa diakses lewat penggunaan normal. Fix: tambah tombol "Export" di
+    blok menu admin `Dashboard.jsx`, pola sama dengan tombol Import.
+  - 🐛 **Bug 5 (minor) — Tombol "←" di header Export salah tujuan**:
+    `onClick={() => navigate('/admin/settings')}` — mengarah ke halaman
+    Pengaturan Admin/Konfigurasi Grid, bukan ke Dashboard. Kemungkinan
+    sisa copy-paste dari struktur `ImportExcel.jsx` yang tidak sempat
+    disesuaikan. Fix: ganti jadi `navigate('/')`.
+  - Housekeeping: kode `.s.font.bold` untuk bold header dihapus setelah
+    dikonfirmasi library `xlsx` versi Community tidak mendukung cell
+    styling (dead code, silently no-op) — user memutuskan skip bold,
+    cukup auto-width kolom yang memang berfungsi.
+  - Setelah semua fix: user konfirmasi testing manual — preview & download
+    kedua mode (Per-Line & Gabungan) berhasil, kolom lengkap termasuk Qty
+    bernilai 0, tombol back & navigasi Dashboard→Export sudah benar.
+    **Fitur Export Excel resmi TUNTAS.**
 - 🔄 Next up: **Sambungkan Dashboard ke data Firestore asli** (data masih
-  placeholder, belum tersambung — masih dummy). Lihat requirement detail
-  di catatan Sesi 1.
+  placeholder/dummy) — sesuai urutan yang direncanakan sejak Sesi 1.
 - ⬜ Belum: PWA/offline persistence penuh (masih pakai `enableIndexedDbPersistence`, ada
   warning deprecated — migrasi ke `FirestoreSettings.cache` belum urgent, catat sebagai
   utang teknis kecil)
@@ -555,6 +622,11 @@
 - ✅ Hover/tap preview Foto — sudah berfungsi penuh setelah fix Portal.
 - ✅ Undo Import cross-page-navigation — sudah diperbaiki dengan context/provider di root.
 - ✅ `useNavigate` tidak ter-import di `ImportExcel.jsx` (bikin halaman crash) — sudah diperbaiki.
+- ✅ Export Excel: kolom `Qty` & `Qty WH` kosong/hilang nilai `0` — sudah diperbaiki.
+- ✅ Export Excel: mismatch nama CSS variable (`var(--primary)` dst vs `--color-*` yang
+  benar) bikin halaman kehilangan seluruh styling — sudah diperbaiki.
+- ✅ Export Excel: tidak ada tombol navigasi dari Dashboard & tombol back salah tujuan —
+  sudah diperbaiki.
 
 ## File Acuan (selalu sertakan saat mulai sesi baru dengan AI editor)
 - `Spesifikasi_App_Plant_Sourcing.md` — spesifikasi fitur & arsitektur lengkap
