@@ -773,8 +773,13 @@ body {
 }
 
 @keyframes modalFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .modal-content {
@@ -787,8 +792,15 @@ body {
 }
 
 @keyframes modalSlideIn {
-  from { transform: translateY(-8px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 .modal-title {
@@ -1105,8 +1117,184 @@ body {
     opacity: 0;
     transform: translateY(20px) scale(0.95);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
 }
+
+  /* ===================================================================
+   Responsive Nav & Speed Dial (FAB)
+   =================================================================== */
+
+  /* Sembunyikan tombol header di layar mobile */
+  @media (max-width: 768px) {
+    .desktop-nav-actions {
+      display: none !important;
+    }
+  }
+
+  /* Sembunyikan Speed Dial di layar desktop */
+  @media (min-width: 769px) {
+    .mobile-speed-dial-container {
+      display: none !important;
+    }
+  }
+
+  /* Container Speed Dial */
+  .mobile-speed-dial-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  }
+
+  /* State untuk animasi Scroll */
+  .mobile-speed-dial-container.fab-hidden {
+    transform: translateY(100px);
+    /* Slide down ke luar layar */
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .mobile-speed-dial-container.fab-visible {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Menu vertikal */
+  .speed-dial-menu {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 16px;
+    pointer-events: none;
+    /* Cegah klik saat tertutup */
+  }
+
+  .speed-dial-menu.open {
+    pointer-events: auto;
+  }
+
+  /* Item menu individual */
+  .speed-dial-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    opacity: 0;
+    transform: translateY(20px) scale(0.8);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Animasi saat menu terbuka */
+  .speed-dial-menu.open .speed-dial-item {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  /* Staggered delay agar item muncul bergantian (efek cascading) */
+  .speed-dial-menu.open .speed-dial-item:nth-last-child(1) {
+    transition-delay: 0.05s;
+  }
+
+  .speed-dial-menu.open .speed-dial-item:nth-last-child(2) {
+    transition-delay: 0.10s;
+  }
+
+  .speed-dial-menu.open .speed-dial-item:nth-last-child(3) {
+    transition-delay: 0.15s;
+  }
+
+  .speed-dial-menu.open .speed-dial-item:nth-last-child(4) {
+    transition-delay: 0.20s;
+  }
+
+  .speed-dial-menu.open .speed-dial-item:nth-last-child(5) {
+    transition-delay: 0.25s;
+  }
+
+  .speed-dial-menu.open .speed-dial-item:nth-last-child(6) {
+    transition-delay: 0.30s;
+  }
+
+  /* Tooltip teks */
+  .speed-dial-tooltip {
+    background: var(--color-ink);
+    color: var(--color-canvas);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Tombol kecil dalam menu */
+  .speed-dial-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--color-canvas);
+    border: 1px solid var(--color-border);
+    color: var(--color-ink);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: rgba(0, 0, 0, 0.1) 0 4px 6px;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  .speed-dial-btn:hover {
+    background: var(--color-surface-panel);
+  }
+
+  .speed-dial-btn.danger {
+    color: var(--color-danger);
+  }
+
+  .speed-dial-btn.danger:hover {
+    background: var(--color-danger-light-bg);
+    border-color: #f5c6cb;
+  }
+
+  /* Tombol utama (FAB) */
+  .speed-dial-main {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    color: white;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: rgba(0, 0, 0, 0.2) 0 4px 12px;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s;
+  }
+
+  .speed-dial-main:hover {
+    background: var(--color-primary-hover);
+  }
+
+  .speed-dial-main:active {
+    transform: scale(0.95);
+  }
+
+  /* Animasi rotasi menjadi tombol silang saat terbuka */
+  .speed-dial-main.open {
+    background: var(--color-danger);
+    transform: rotate(45deg);
+  }
+
+  .speed-dial-main.open:hover {
+    background: var(--color-danger-hover);
+  }

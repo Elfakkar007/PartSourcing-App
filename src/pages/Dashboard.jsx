@@ -13,8 +13,6 @@ const LINE_IDS = ['line1', 'line2', 'line3', 'line4']
 const LINE_LABELS = { line1: 'Line 1', line2: 'Line 2', line3: 'Line 3', line4: 'Line 4' }
 
 function categoryColor(name) {
-  // Normalisasi dulu (trim + lowercase) supaya warna konsisten walau label
-  // yang ditampilkan casing-nya beda-beda (mis. "Breaker" vs "breaker")
   const normalized = (name || '').trim().toLowerCase()
   let hash = 0
   for (let i = 0; i < normalized.length; i++) hash = normalized.charCodeAt(i) + ((hash << 5) - hash)
@@ -163,7 +161,6 @@ function ProgressCard({ line, isOwnLine, onClick, canNavigate }) {
         )}
       </div>
 
-      {/* Location checklist */}
       <div style={{
         borderTop: '1px solid #e8eaed',
         paddingTop: '10px',
@@ -237,17 +234,43 @@ function CategoryBar({ categories }) {
   )
 }
 
-
 export default function Dashboard() {
   const { currentUser, userRole, logout } = useAuth()
   const navigate = useNavigate()
 
   const [components, setComponents] = useState([])
-  const [locations, setLocations] = useState({}) // { locId: { name, line } }
+  const [locations, setLocations] = useState({})
   const [isLoading, setIsLoading] = useState(true)
   const [requiredColumns, setRequiredColumns] = useState(
     ['subMachine', 'category', 'part', 'spesification', 'status', 'qty', 'foto']
   )
+
+  // -- State untuk Speed Dial (FAB) --
+  const [isFabVisible, setIsFabVisible] = useState(true)
+  const [isFabOpen, setIsFabOpen] = useState(false)
+
+  // -- Logika Scroll --
+  useEffect(() => {
+    let lastScrollY = window.scrollY
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY
+
+      // UX Standar: Hilang saat scroll ke bawah, Muncul saat scroll ke atas.
+      // Jika ingin sebaliknya (Muncul hanya saat scroll ke bawah), 
+      // cukup ubah tanda `>` di bawah menjadi `<` (currentScrollY < lastScrollY)
+      if (currentScrollY > lastScrollY) {
+        setIsFabVisible(false)
+        setIsFabOpen(false) // Otomatis tutup menu jika sedang scroll
+      } else {
+        setIsFabVisible(true)
+      }
+
+      lastScrollY = currentScrollY
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
 
   function isRowComplete(row) {
     return requiredColumns.every(col => {
@@ -298,7 +321,7 @@ export default function Dashboard() {
     return () => { unsubComp(); unsubLoc(); unsubGrid() }
   }, [])
 
-  // --- Derived data (all computed from components + locations) ---
+  // --- Derived data ---
   const stats = useMemo(() => {
     const totalParts = components.length
     const existing = components.filter(c => c.status === 'Existing').length
@@ -306,13 +329,10 @@ export default function Dashboard() {
     const existingPct = totalParts > 0 ? Math.round((existing / totalParts) * 100) : 0
     const inactivePct = totalParts > 0 ? Math.round((inactive / totalParts) * 100) : 0
 
-    // Progress per line
     const lineData = LINE_IDS.map(lineId => {
       const lineComps = components.filter(c => c.line === lineId)
       const completed = lineComps.filter(isRowComplete).length
-
-      // Location checklist for this line
-      const locGroups = {} // { locId: [rows] }
+      const locGroups = {}
       lineComps.forEach(c => {
         const lid = c.locationId || '__none__'
         if (!locGroups[lid]) locGroups[lid] = []
@@ -343,17 +363,10 @@ export default function Dashboard() {
     const totalCompleted = lineData.reduce((s, l) => s + l.completedRows, 0)
     const overallPct = totalRows > 0 ? Math.round((totalCompleted / totalRows) * 100) : 0
 
-    // Category breakdown
-    // Dikelompokkan case-insensitive (mis. "Breaker" & "breaker" dihitung
-    // sebagai 1 kategori yang sama), baris dengan category kosong DI-EXCLUDE
-    // dari chart ini (bukan bug -- keputusan sadar, banyak baris kosong hasil
-    // "Tambah Sekaligus" yang belum diisi, tidak representatif sebagai
-    // kategori). Label yang ditampilkan = casing yang paling sering muncul
-    // untuk kategori itu, supaya tetap enak dibaca (bukan dipaksa lowercase).
-    const catMap = {} // normalizedKey -> { count, labelCounts: { rawLabel: count } }
+    const catMap = {}
     components.forEach(c => {
       const raw = c.category?.trim()
-      if (!raw) return // exclude kosong
+      if (!raw) return
       const key = raw.toLowerCase()
       if (!catMap[key]) catMap[key] = { count: 0, labelCounts: {} }
       catMap[key].count += 1
@@ -428,140 +441,47 @@ export default function Dashboard() {
             </h1>
           </div>
 
-          {/* Right: user info + logout */}
+          {/* Right: user info + logout (Diberi class desktop-nav-actions jika berupa tombol navigasi) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             {userRole === 'admin' && (
-              <>
-                <button
-                  onClick={() => navigate('/admin/import')}
-                  className="btn-secondary"
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '13px',
-                    color: '#1f2328',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                  title="Import Excel"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="17 8 12 3 7 8"></polyline>
-                    <line x1="12" y1="3" x2="12" y2="15"></line>
-                  </svg>
+              <div className="desktop-nav-actions" style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => navigate('/admin/import')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                   Import
                 </button>
-                <button
-                  onClick={() => navigate('/admin/export')}
-                  className="btn-secondary"
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '13px',
-                    color: '#1f2328',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                  title="Export Excel"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="7 10 12 15 17 10"></polyline>
-                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                  </svg>
+                <button onClick={() => navigate('/admin/export')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                   Export
                 </button>
-                <button
-                  onClick={() => navigate('/admin/activity-log')}
-                  className="btn-secondary"
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '13px',
-                    color: '#1f2328',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                  title="Activity Log"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <polyline points="12 6 12 12 16 14"></polyline>
-                  </svg>
+                <button onClick={() => navigate('/admin/activity-log')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                   Activity Log
                 </button>
-                <button
-                  onClick={() => navigate('/admin/recycle-bin')}
-                  className="btn-secondary"
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '13px',
-                    color: '#1f2328',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                  title="Recycle Bin"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="3 6 5 6 21 6"></polyline>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                    <line x1="10" y1="11" x2="10" y2="17"></line>
-                    <line x1="14" y1="11" x2="14" y2="17"></line>
-                  </svg>
+                <button onClick={() => navigate('/admin/recycle-bin')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                   Recycle Bin
                 </button>
-                <button
-                  onClick={() => navigate('/admin/settings')}
-                  className="btn-secondary"
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '13px',
-                    color: '#1f2328',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
+                <button onClick={() => navigate('/admin/settings')} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
                   Pengaturan Kolom
                 </button>
-              </>
+              </div>
             )}
 
             {currentUser && (
               <>
                 <div style={{ textAlign: 'right' }}>
-                  <p style={{
-                    margin: 0,
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: '#1f2328',
-                    lineHeight: 1.2,
-                  }}>
+                  <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#1f2328', lineHeight: 1.2 }}>
                     {currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User'}
                   </p>
-                  <p style={{
-                    margin: 0,
-                    fontSize: '12px',
-                    color: '#5f6368',
-                    lineHeight: 1.3,
-                  }}>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#5f6368', lineHeight: 1.3 }}>
                     {roleLabelMap[userRole] || userRole || 'User'}
                   </p>
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="btn-secondary"
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '13px',
-                    color: '#5f6368',
-                  }}
+                  className="btn-secondary desktop-nav-actions"
+                  style={{ padding: '6px 12px', fontSize: '13px', color: '#5f6368' }}
                 >
                   Keluar
                 </button>
@@ -571,10 +491,7 @@ export default function Dashboard() {
               <button
                 onClick={() => navigate('/login')}
                 className="btn-primary"
-                style={{
-                  padding: '6px 16px',
-                  fontSize: '13px',
-                }}
+                style={{ padding: '6px 16px', fontSize: '13px' }}
               >
                 Login
               </button>
@@ -628,29 +545,10 @@ export default function Dashboard() {
               gap: '12px',
               marginBottom: '24px',
             }}>
-              <StatCard
-                label="Total Part"
-                value={stats.totalParts}
-                accent="primary"
-              />
-              <StatCard
-                label="Existing"
-                value={stats.existing}
-                subtext={`${stats.existingPct}% dari total`}
-                accent="primary"
-              />
-              <StatCard
-                label="Tidak Aktif"
-                value={stats.inactive}
-                subtext={`${stats.inactivePct}% dari total`}
-                accent="warning"
-              />
-              <StatCard
-                label="Kelengkapan Data"
-                value={`${stats.overallPct}%`}
-                subtext={`${stats.totalCompleted} / ${stats.totalRows} baris`}
-                accent="secondary"
-              />
+              <StatCard label="Total Part" value={stats.totalParts} accent="primary" />
+              <StatCard label="Existing" value={stats.existing} subtext={`${stats.existingPct}% dari total`} accent="primary" />
+              <StatCard label="Tidak Aktif" value={stats.inactive} subtext={`${stats.inactivePct}% dari total`} accent="warning" />
+              <StatCard label="Kelengkapan Data" value={`${stats.overallPct}%`} subtext={`${stats.totalCompleted} / ${stats.totalRows} baris`} accent="secondary" />
             </div>
 
             {/* ---- Overall progress bar ---- */}
@@ -704,6 +602,76 @@ export default function Dashboard() {
           </>
         )}
       </main>
+
+      {/* ---- Speed Dial (Mobile) ---- */}
+      {currentUser && (
+        <div className={`mobile-speed-dial-container ${isFabVisible ? 'fab-visible' : 'fab-hidden'}`}>
+          <div className={`speed-dial-menu ${isFabOpen ? 'open' : ''}`}>
+
+            {userRole === 'admin' && (
+              <>
+                <div className="speed-dial-item">
+                  <span className="speed-dial-tooltip">Pengaturan Kolom</span>
+                  <button onClick={() => { setIsFabOpen(false); navigate('/admin/settings') }} className="speed-dial-btn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
+                  </button>
+                </div>
+                <div className="speed-dial-item">
+                  <span className="speed-dial-tooltip">Recycle Bin</span>
+                  <button onClick={() => { setIsFabOpen(false); navigate('/admin/recycle-bin') }} className="speed-dial-btn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                  </button>
+                </div>
+                <div className="speed-dial-item">
+                  <span className="speed-dial-tooltip">Activity Log</span>
+                  <button onClick={() => { setIsFabOpen(false); navigate('/admin/activity-log') }} className="speed-dial-btn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                  </button>
+                </div>
+                <div className="speed-dial-item">
+                  <span className="speed-dial-tooltip">Export</span>
+                  <button onClick={() => { setIsFabOpen(false); navigate('/admin/export') }} className="speed-dial-btn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  </button>
+                </div>
+                <div className="speed-dial-item">
+                  <span className="speed-dial-tooltip">Import</span>
+                  <button onClick={() => { setIsFabOpen(false); navigate('/admin/import') }} className="speed-dial-btn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Tombol Logout (muncul untuk Admin & Intern) */}
+            <div className="speed-dial-item">
+              <span className="speed-dial-tooltip" style={{ background: 'var(--color-danger)' }}>Keluar</span>
+              <button
+                onClick={() => { setIsFabOpen(false); handleLogout(); }}
+                className="speed-dial-btn danger"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                  <polyline points="16 17 21 12 16 7"></polyline>
+                  <line x1="21" y1="12" x2="9" y2="12"></line>
+                </svg>
+              </button>
+            </div>
+
+          </div>
+
+          <button
+            className={`speed-dial-main ${isFabOpen ? 'open' : ''}`}
+            onClick={() => setIsFabOpen(!isFabOpen)}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+      )}
+
     </div>
   )
 }
