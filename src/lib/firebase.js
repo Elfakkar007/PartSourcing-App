@@ -1,5 +1,9 @@
 import { initializeApp } from 'firebase/app'
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore'
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 
 // Firebase configuration
@@ -15,21 +19,18 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig)
 
-// Initialize Firestore with offline persistence
-export const db = getFirestore(app)
+// Initialize Firestore dengan offline persistence (API baru, menggantikan
+// enableIndexedDbPersistence yang deprecated). persistentMultipleTabManager
+// dipertahankan supaya perilaku multi-tab (mis. admin & intern buka di 2
+// window Chrome sekaligus) tetap didukung sinkron, bukan gagal seperti
+// peringatan 'failed-precondition' di versi lama.
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
+})
 
-// Enable offline persistence
-enableIndexedDbPersistence(db)
-  .then(() => {
-    console.log('✅ Firestore offline persistence enabled')
-  })
-  .catch((err) => {
-    if (err.code === 'failed-precondition') {
-      console.warn('⚠️ Offline persistence failed: multiple tabs open')
-    } else if (err.code === 'unimplemented') {
-      console.warn('⚠️ Offline persistence not supported by browser')
-    }
-  })
+console.log('✅ Firestore offline persistence enabled (multi-tab)')
 
 // Initialize Auth
 export const auth = getAuth(app)

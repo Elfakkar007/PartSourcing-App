@@ -10,10 +10,13 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        cleanupOutdatedCaches: true, // hapus cache lama otomatis
+      },
       includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Part Sourcing App',
-        short_name: 'PartSourcing',
+        short_name: 'Part Sourcing',
         description: 'Part Sourcing Electrical Satoria',
         theme_color: '#188038',
         background_color: '#ffffff',

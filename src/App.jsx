@@ -10,6 +10,7 @@ import RecycleBin from './pages/RecycleBin'
 import ActivityLog from './pages/ActivityLog'
 import ImportExcel from './pages/ImportExcel'
 import ExportExcel from './pages/ExportExcel'
+import UpdatePrompt from './components/UpdatePrompt'
 
 function AdminRoute({ children }) {
   const { currentUser, userRole } = useAuth()
@@ -55,51 +56,52 @@ function App() {
                   </PrivateRoute>
                 }
               />
-              <Route 
-                path="/admin/settings" 
+              <Route
+                path="/admin/settings"
                 element={
                   <AdminRoute>
                     <AdminSettings />
                   </AdminRoute>
-                } 
+                }
               />
-              <Route 
-                path="/admin/recycle-bin" 
+              <Route
+                path="/admin/recycle-bin"
                 element={
                   <AdminRoute>
                     <RecycleBin />
                   </AdminRoute>
-                } 
+                }
               />
-              <Route 
-                path="/admin/activity-log" 
+              <Route
+                path="/admin/activity-log"
                 element={
                   <AdminRoute>
                     <ActivityLog />
                   </AdminRoute>
-                } 
+                }
               />
-              <Route 
-                path="/admin/import" 
+              <Route
+                path="/admin/import"
                 element={
                   <AdminRoute>
                     <ImportExcel />
                   </AdminRoute>
-                } 
+                }
               />
-              <Route 
-                path="/admin/export" 
+              <Route
+                path="/admin/export"
                 element={
                   <AdminRoute>
                     <ExportExcel />
                   </AdminRoute>
-                } 
+                }
               />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           </ImportUndoProvider>
         </AuthProvider>
       </ToastProvider>
+      <UpdatePrompt />
     </BrowserRouter>
   )
 }
