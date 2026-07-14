@@ -12,9 +12,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'Plant Sourcing App',
-        short_name: 'PlantSourcing',
-        description: 'Aplikasi sourcing komponen elektrik pabrik',
+        name: 'Part Sourcing App',
+        short_name: 'PartSourcing',
+        description: 'Part Sourcing Electrical Satoria',
         theme_color: '#188038',
         background_color: '#ffffff',
         display: 'standalone',
@@ -22,9 +22,15 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: '/favicon.svg',
+            src: '/web-app-manifest-192x192.png',
             sizes: '192x192',
-            type: 'image/svg+xml'
+            type: 'image/png'
+          },
+          {
+            src: '/web-app-manifest-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable'
           }
         ]
       }

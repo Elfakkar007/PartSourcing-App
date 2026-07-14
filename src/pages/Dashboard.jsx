@@ -1,34 +1,29 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import { db } from '../lib/firebase'
+import { collection, doc, onSnapshot, query, where } from 'firebase/firestore'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 /* ------------------------------------------------------------------ */
-/*  Placeholder data — will be replaced by live Firestore queries     */
+/*  Constants & Pure Functions                                        */
 /* ------------------------------------------------------------------ */
-const LINES = [
-  { id: 1, name: 'Line 1', totalRows: 142, completedRows: 98, locations: ['Boiler Room', 'Turbine Hall', 'Control Room'] },
-  { id: 2, name: 'Line 2', totalRows: 118, completedRows: 67, locations: ['Compressor', 'Electrical Panel', 'Generator Room'] },
-  { id: 3, name: 'Line 3', totalRows: 95, completedRows: 41, locations: ['Pump Station', 'Cooling Tower', 'Water Treatment'] },
-  { id: 4, name: 'Line 4', totalRows: 130, completedRows: 112, locations: ['Motor Room', 'Transformer', 'Switchgear', 'Battery Room'] },
-]
 
-const STATUS_SUMMARY = {
-  totalParts: 485,
-  existing: 387,
-  inactive: 98,
+const LINE_IDS = ['line1', 'line2', 'line3', 'line4']
+const LINE_LABELS = { line1: 'Line 1', line2: 'Line 2', line3: 'Line 3', line4: 'Line 4' }
+
+function categoryColor(name) {
+  // Normalisasi dulu (trim + lowercase) supaya warna konsisten walau label
+  // yang ditampilkan casing-nya beda-beda (mis. "Breaker" vs "breaker")
+  const normalized = (name || '').trim().toLowerCase()
+  let hash = 0
+  for (let i = 0; i < normalized.length; i++) hash = normalized.charCodeAt(i) + ((hash << 5) - hash)
+  const hue = Math.abs(hash) % 360
+  return `hsl(${hue}, 65%, 50%)`
 }
 
-const CATEGORIES = [
-  { name: 'Motor', count: 68 },
-  { name: 'Sensor', count: 54 },
-  { name: 'Relay', count: 47 },
-  { name: 'Breaker', count: 42 },
-  { name: 'Cable', count: 39 },
-  { name: 'Contactor', count: 35 },
-  { name: 'PLC', count: 28 },
-  { name: 'Lainnya', count: 172 },
-]
-
+/* ------------------------------------------------------------------ */
+/*  Sub-components                                                     */
 /* ------------------------------------------------------------------ */
 
 function SyncStatusBar() {
@@ -107,26 +102,26 @@ function StatCard({ label, value, subtext, accent }) {
   )
 }
 
-function ProgressCard({ line, isOwnLine, onClick }) {
+function ProgressCard({ line, isOwnLine, onClick, canNavigate }) {
   const pct = line.totalRows > 0 ? Math.round((line.completedRows / line.totalRows) * 100) : 0
 
   return (
     <div
       className="ds-card"
-      onClick={onClick}
+      onClick={canNavigate ? onClick : undefined}
       style={{
         display: 'flex',
         flexDirection: 'column',
         gap: '12px',
-        cursor: onClick ? 'pointer' : 'default',
+        cursor: canNavigate ? 'pointer' : 'default',
         transition: 'box-shadow 0.15s',
         ...(isOwnLine ? {
           borderLeft: '3px solid #1a73e8',
           background: '#f8fbff',
         } : {}),
       }}
-      onMouseEnter={(e) => { if (onClick) e.currentTarget.style.boxShadow = 'rgba(0,0,0,0.08) 0 2px 8px' }}
-      onMouseLeave={(e) => { if (onClick) e.currentTarget.style.boxShadow = 'rgba(0,0,0,0.06) 0 1px 2px' }}
+      onMouseEnter={(e) => { if (canNavigate) e.currentTarget.style.boxShadow = 'rgba(0,0,0,0.08) 0 2px 8px' }}
+      onMouseLeave={(e) => { if (canNavigate) e.currentTarget.style.boxShadow = 'rgba(0,0,0,0.06) 0 1px 2px' }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -180,7 +175,7 @@ function ProgressCard({ line, isOwnLine, onClick }) {
           Lokasi
         </p>
         {line.locations.map((loc) => (
-          <div key={loc} style={{
+          <div key={loc.name} style={{
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -191,16 +186,20 @@ function ProgressCard({ line, isOwnLine, onClick }) {
               width: '16px',
               height: '16px',
               borderRadius: '4px',
-              border: '1.5px solid #dadce0',
-              background: '#ffffff',
+              border: loc.complete ? 'none' : '1.5px solid #dadce0',
+              background: loc.complete ? '#188038' : '#ffffff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
             }}>
-              {/* Placeholder — will show check when location complete */}
+              {loc.complete && (
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+              )}
             </div>
-            <span>{loc}</span>
+            <span>{loc.name}</span>
           </div>
         ))}
       </div>
@@ -208,65 +207,31 @@ function ProgressCard({ line, isOwnLine, onClick }) {
   )
 }
 
-/* Neutral chart palette — avoids semantic green/amber/red reserved for status */
-const CATEGORY_COLORS = [
-  '#1a73e8', // Blue
-  '#7c3aed', // Violet
-  '#0d9488', // Teal
-  '#6366f1', // Indigo
-  '#0891b2', // Cyan
-  '#8b5cf6', // Purple
-  '#0e7490', // Dark cyan
-  '#4f46e5', // Deep indigo
-]
-
 function CategoryBar({ categories }) {
-  const max = Math.max(...categories.map(c => c.count))
+  if (categories.length === 0) return null
 
   return (
     <div className="ds-card" style={{ gridColumn: '1 / -1' }}>
       <h3 style={{ margin: '0 0 16px', fontSize: '14px', fontWeight: 600, color: '#1f2328' }}>
         Breakdown per Category
       </h3>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {categories.map((cat, i) => (
-          <div key={cat.name} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{
-              width: '80px',
-              flexShrink: 0,
-              fontSize: '13px',
-              color: '#5f6368',
-              textAlign: 'right',
-            }}>
-              {cat.name}
-            </span>
-            <div style={{
-              flex: 1,
-              height: '20px',
-              background: '#f1f3f4',
-              borderRadius: '4px',
-              overflow: 'hidden',
-            }}>
-              <div style={{
-                height: '100%',
-                width: `${(cat.count / max) * 100}%`,
-                background: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
-                borderRadius: '4px',
-                transition: 'width 0.4s ease',
-              }} />
-            </div>
-            <span style={{
-              width: '36px',
-              flexShrink: 0,
-              fontSize: '13px',
-              fontWeight: 600,
-              color: '#1f2328',
-              textAlign: 'right',
-            }}>
-              {cat.count}
-            </span>
-          </div>
-        ))}
+
+      <div style={{ width: '100%', height: Math.max(categories.length * 36, 180) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={categories} layout="vertical" margin={{ left: 0, right: 20, top: 0, bottom: 0 }}>
+            <XAxis type="number" hide />
+            <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 13, fill: '#5f6368' }} axisLine={false} tickLine={false} />
+            <Tooltip
+              formatter={(value) => [value, 'Jumlah']}
+              contentStyle={{ fontSize: '13px', borderRadius: '8px', border: '1px solid #e8eaed' }}
+            />
+            <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={20}>
+              {categories.map((cat) => (
+                <Cell key={cat.name} fill={categoryColor(cat.name)} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </div>
   )
@@ -277,9 +242,132 @@ export default function Dashboard() {
   const { currentUser, userRole, logout } = useAuth()
   const navigate = useNavigate()
 
-  const totalRows = LINES.reduce((s, l) => s + l.totalRows, 0)
-  const totalCompleted = LINES.reduce((s, l) => s + l.completedRows, 0)
-  const overallPct = totalRows > 0 ? Math.round((totalCompleted / totalRows) * 100) : 0
+  const [components, setComponents] = useState([])
+  const [locations, setLocations] = useState({}) // { locId: { name, line } }
+  const [isLoading, setIsLoading] = useState(true)
+  const [requiredColumns, setRequiredColumns] = useState(
+    ['subMachine', 'category', 'part', 'spesification', 'status', 'qty', 'foto']
+  )
+
+  function isRowComplete(row) {
+    return requiredColumns.every(col => {
+      if (col === 'qty' && row.status === 'Tidak Aktif') return true
+      const val = row[col]
+      return val !== null && val !== undefined && val !== ''
+    })
+  }
+
+  // --- Realtime listeners ---
+  useEffect(() => {
+    let loadedCount = 0
+    const checkDone = () => { if (++loadedCount >= 3) setIsLoading(false) }
+
+    const compQ = query(collection(db, 'components'), where('isDeleted', '==', false))
+    const unsubComp = onSnapshot(compQ, (snap) => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setComponents(data)
+      checkDone()
+    }, (err) => {
+      console.error('Dashboard components listener error:', err)
+      checkDone()
+    })
+
+    const unsubLoc = onSnapshot(collection(db, 'locations'), (snap) => {
+      const locMap = {}
+      snap.docs.forEach(d => { locMap[d.id] = d.data() })
+      setLocations(locMap)
+      checkDone()
+    }, (err) => {
+      console.error('Dashboard locations listener error:', err)
+      checkDone()
+    })
+
+    const unsubGrid = onSnapshot(doc(db, 'settings', 'gridConfig'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data()
+        if (data.requiredColumns && data.requiredColumns.length > 0) {
+          setRequiredColumns(data.requiredColumns)
+        }
+      }
+      checkDone()
+    }, (err) => {
+      console.error('Dashboard gridConfig listener error:', err)
+      checkDone()
+    })
+
+    return () => { unsubComp(); unsubLoc(); unsubGrid() }
+  }, [])
+
+  // --- Derived data (all computed from components + locations) ---
+  const stats = useMemo(() => {
+    const totalParts = components.length
+    const existing = components.filter(c => c.status === 'Existing').length
+    const inactive = components.filter(c => c.status === 'Tidak Aktif').length
+    const existingPct = totalParts > 0 ? Math.round((existing / totalParts) * 100) : 0
+    const inactivePct = totalParts > 0 ? Math.round((inactive / totalParts) * 100) : 0
+
+    // Progress per line
+    const lineData = LINE_IDS.map(lineId => {
+      const lineComps = components.filter(c => c.line === lineId)
+      const completed = lineComps.filter(isRowComplete).length
+
+      // Location checklist for this line
+      const locGroups = {} // { locId: [rows] }
+      lineComps.forEach(c => {
+        const lid = c.locationId || '__none__'
+        if (!locGroups[lid]) locGroups[lid] = []
+        locGroups[lid].push(c)
+      })
+
+      const locChecklist = Object.entries(locGroups)
+        .sort(([aId], [bId]) => {
+          const aTime = locations[aId]?.createdAt?.toMillis?.() || 0
+          const bTime = locations[bId]?.createdAt?.toMillis?.() || 0
+          return aTime - bTime
+        })
+        .map(([locId, rows]) => ({
+          name: locations[locId]?.name || locId,
+          complete: rows.length > 0 && rows.every(isRowComplete),
+        }))
+
+      return {
+        id: lineId,
+        name: LINE_LABELS[lineId],
+        totalRows: lineComps.length,
+        completedRows: completed,
+        locations: locChecklist,
+      }
+    })
+
+    const totalRows = lineData.reduce((s, l) => s + l.totalRows, 0)
+    const totalCompleted = lineData.reduce((s, l) => s + l.completedRows, 0)
+    const overallPct = totalRows > 0 ? Math.round((totalCompleted / totalRows) * 100) : 0
+
+    // Category breakdown
+    // Dikelompokkan case-insensitive (mis. "Breaker" & "breaker" dihitung
+    // sebagai 1 kategori yang sama), baris dengan category kosong DI-EXCLUDE
+    // dari chart ini (bukan bug -- keputusan sadar, banyak baris kosong hasil
+    // "Tambah Sekaligus" yang belum diisi, tidak representatif sebagai
+    // kategori). Label yang ditampilkan = casing yang paling sering muncul
+    // untuk kategori itu, supaya tetap enak dibaca (bukan dipaksa lowercase).
+    const catMap = {} // normalizedKey -> { count, labelCounts: { rawLabel: count } }
+    components.forEach(c => {
+      const raw = c.category?.trim()
+      if (!raw) return // exclude kosong
+      const key = raw.toLowerCase()
+      if (!catMap[key]) catMap[key] = { count: 0, labelCounts: {} }
+      catMap[key].count += 1
+      catMap[key].labelCounts[raw] = (catMap[key].labelCounts[raw] || 0) + 1
+    })
+    const categories = Object.values(catMap)
+      .map(entry => {
+        const label = Object.entries(entry.labelCounts).sort((a, b) => b[1] - a[1])[0][0]
+        return { name: label, count: entry.count }
+      })
+      .sort((a, b) => b.count - a.count)
+
+    return { totalParts, existing, inactive, existingPct, inactivePct, lineData, totalRows, totalCompleted, overallPct, categories }
+  }, [components, locations, requiredColumns])
 
   async function handleLogout() {
     try {
@@ -445,36 +533,52 @@ export default function Dashboard() {
               </>
             )}
 
-            <div style={{ textAlign: 'right' }}>
-              <p style={{
-                margin: 0,
-                fontSize: '13px',
-                fontWeight: 600,
-                color: '#1f2328',
-                lineHeight: 1.2,
-              }}>
-                {currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User'}
-              </p>
-              <p style={{
-                margin: 0,
-                fontSize: '12px',
-                color: '#5f6368',
-                lineHeight: 1.3,
-              }}>
-                {roleLabelMap[userRole] || userRole || 'User'}
-              </p>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="btn-secondary"
-              style={{
-                padding: '6px 12px',
-                fontSize: '13px',
-                color: '#5f6368',
-              }}
-            >
-              Keluar
-            </button>
+            {currentUser && (
+              <>
+                <div style={{ textAlign: 'right' }}>
+                  <p style={{
+                    margin: 0,
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: '#1f2328',
+                    lineHeight: 1.2,
+                  }}>
+                    {currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User'}
+                  </p>
+                  <p style={{
+                    margin: 0,
+                    fontSize: '12px',
+                    color: '#5f6368',
+                    lineHeight: 1.3,
+                  }}>
+                    {roleLabelMap[userRole] || userRole || 'User'}
+                  </p>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="btn-secondary"
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '13px',
+                    color: '#5f6368',
+                  }}
+                >
+                  Keluar
+                </button>
+              </>
+            )}
+            {!currentUser && (
+              <button
+                onClick={() => navigate('/login')}
+                className="btn-primary"
+                style={{
+                  padding: '6px 16px',
+                  fontSize: '13px',
+                }}
+              >
+                Login
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -505,89 +609,100 @@ export default function Dashboard() {
             fontSize: '14px',
             color: '#5f6368',
           }}>
-            Ringkasan progress sourcing komponen — data berikut masih placeholder
+            Ringkasan progress sourcing komponen — data langsung dari Firestore
           </p>
         </div>
 
-        {/* ---- Row 1: Stat cards ---- */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: '12px',
-          marginBottom: '24px',
-        }}>
-          <StatCard
-            label="Total Part"
-            value={STATUS_SUMMARY.totalParts}
-            accent="primary"
-          />
-          <StatCard
-            label="Existing"
-            value={STATUS_SUMMARY.existing}
-            subtext={`${Math.round((STATUS_SUMMARY.existing / STATUS_SUMMARY.totalParts) * 100)}% dari total`}
-            accent="primary"
-          />
-          <StatCard
-            label="Tidak Aktif"
-            value={STATUS_SUMMARY.inactive}
-            subtext={`${Math.round((STATUS_SUMMARY.inactive / STATUS_SUMMARY.totalParts) * 100)}% dari total`}
-            accent="warning"
-          />
-          <StatCard
-            label="Kelengkapan Data"
-            value={`${overallPct}%`}
-            subtext={`${totalCompleted} / ${totalRows} baris`}
-            accent="secondary"
-          />
-        </div>
-
-        {/* ---- Overall progress bar ---- */}
-        <div className="ds-card" style={{ marginBottom: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
-            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#1f2328' }}>
-              Progress Keseluruhan
-            </h3>
-            <span style={{ fontSize: '14px', fontWeight: 600, color: '#1f2328' }}>
-              {overallPct}%
-            </span>
+        {isLoading ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px' }}>
+            <div style={{ width: '40px', height: '40px', border: '3px solid #dadce0', borderTop: '3px solid #188038', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+            <p style={{ marginTop: '16px', color: '#5f6368' }}>Memuat data...</p>
+            <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
           </div>
-          <div className="progress-track" style={{ height: '10px' }}>
-            <div className="progress-fill" style={{ width: `${overallPct}%` }} />
-          </div>
-          <p style={{ fontSize: '12px', color: '#5f6368', marginTop: '6px' }}>
-            {totalCompleted} dari {totalRows} baris sudah lengkap (gabungan 4 Line)
-          </p>
-        </div>
-
-        {/* ---- Row 2: Per-line progress + location checklists ---- */}
-        <div style={{ marginBottom: '24px' }}>
-          <h3 style={{
-            margin: '0 0 12px',
-            fontSize: '16px',
-            fontWeight: 600,
-            color: '#1f2328',
-            lineHeight: 1.3,
-          }}>
-            Progress per Line
-          </h3>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-            gap: '12px',
-          }}>
-            {LINES.map((line) => (
-              <ProgressCard
-                key={line.id}
-                line={line}
-                isOwnLine={userRole === 'intern' && currentUser?.assignedLine === line.id}
-                onClick={() => navigate(`/line/line${line.id}`)}
+        ) : (
+          <>
+            {/* ---- Row 1: Stat cards ---- */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '12px',
+              marginBottom: '24px',
+            }}>
+              <StatCard
+                label="Total Part"
+                value={stats.totalParts}
+                accent="primary"
               />
-            ))}
-          </div>
-        </div>
+              <StatCard
+                label="Existing"
+                value={stats.existing}
+                subtext={`${stats.existingPct}% dari total`}
+                accent="primary"
+              />
+              <StatCard
+                label="Tidak Aktif"
+                value={stats.inactive}
+                subtext={`${stats.inactivePct}% dari total`}
+                accent="warning"
+              />
+              <StatCard
+                label="Kelengkapan Data"
+                value={`${stats.overallPct}%`}
+                subtext={`${stats.totalCompleted} / ${stats.totalRows} baris`}
+                accent="secondary"
+              />
+            </div>
 
-        {/* ---- Row 3: Category breakdown ---- */}
-        <CategoryBar categories={CATEGORIES} />
+            {/* ---- Overall progress bar ---- */}
+            <div className="ds-card" style={{ marginBottom: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
+                <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#1f2328' }}>
+                  Progress Keseluruhan
+                </h3>
+                <span style={{ fontSize: '14px', fontWeight: 600, color: '#1f2328' }}>
+                  {stats.overallPct}%
+                </span>
+              </div>
+              <div className="progress-track" style={{ height: '10px' }}>
+                <div className="progress-fill" style={{ width: `${stats.overallPct}%` }} />
+              </div>
+              <p style={{ fontSize: '12px', color: '#5f6368', marginTop: '6px' }}>
+                {stats.totalCompleted} dari {stats.totalRows} baris sudah lengkap (gabungan 4 Line)
+              </p>
+            </div>
+
+            {/* ---- Row 2: Per-line progress + location checklists ---- */}
+            <div style={{ marginBottom: '24px' }}>
+              <h3 style={{
+                margin: '0 0 12px',
+                fontSize: '16px',
+                fontWeight: 600,
+                color: '#1f2328',
+                lineHeight: 1.3,
+              }}>
+                Progress per Line
+              </h3>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                gap: '12px',
+              }}>
+                {stats.lineData.map((line) => (
+                  <ProgressCard
+                    key={line.id}
+                    line={line}
+                    isOwnLine={userRole === 'intern' && currentUser?.assignedLine === line.id}
+                    canNavigate={!!currentUser}
+                    onClick={() => navigate(`/line/${line.id}`)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* ---- Row 3: Category breakdown ---- */}
+            <CategoryBar categories={stats.categories} />
+          </>
+        )}
       </main>
     </div>
   )

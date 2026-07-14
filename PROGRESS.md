@@ -429,13 +429,6 @@
       halaman dalam window 15 detik → balik → klik Undo di toast → batch
       terhapus dengan benar. **Fitur Import Excel (Tahap 1-4) resmi
       TUNTAS seluruhnya.**
-  2. Sambungkan Dashboard ke data Firestore asli (SENGAJA diletakkan
-     PALING TERAKHIR, setelah Import — supaya Dashboard langsung dibangun
-     & dites terhadap data final/asli, bukan data dummy yang toh akan
-     disapu bersih; menghindari kerja & testing dua kali) — breakdown per
-     Category harus baca nilai unik dari data real + warna berbasis hash
-     nama kategori, BUKAN hardcode/urutan alfabetis
-
 
 
 - ℹ️ **Keterbatasan cache offline yang perlu diketahui (bukan bug)**: jika
@@ -448,10 +441,6 @@
   Location di Line miliknya minimal sekali saat online (misal di awal shift)
   sebelum bekerja di titik dengan sinyal buruk/tanpa sinyal.
 
-- ✅ **Selesai & terverifikasi: IMPORT Excel (Tahap 1-4 LENGKAP)** —
-  Upload→Parse→Preview, Mapping+Validasi, Commit (hapus lama+tulis baru+
-  auto-create Location), dan Undo per-batch. Lihat detail lengkap tiap
-  tahap (termasuk semua bug & fix) di bagian atas.
 - ✅ **SELESAI & TERVERIFIKASI: EXPORT Excel** — halaman `/admin/export`,
   arah terpisah dari Import (Spesifikasi §8): generate file Excel per-Line
   (1 sheet) & gabungan (4 sheet), preview sebelum download, pakai SheetJS.
@@ -515,12 +504,101 @@
     kedua mode (Per-Line & Gabungan) berhasil, kolom lengkap termasuk Qty
     bernilai 0, tombol back & navigasi Dashboard→Export sudah benar.
     **Fitur Export Excel resmi TUNTAS.**
-- 🔄 Next up: **Sambungkan Dashboard ke data Firestore asli** (data masih
-  placeholder/dummy) — sesuai urutan yang direncanakan sejak Sesi 1.
+- ✅ **SELESAI & TERVERIFIKASI: Dashboard tersambung ke data Firestore asli**
+  (menggantikan data placeholder/dummy `LINES`, `STATUS_SUMMARY`, `CATEGORIES`)
+
+  - **Scope final: 4 dari 5 visualisasi Spesifikasi §9** (poin "Tren progress
+    harian" di-skip permanen, lihat catatan deviasi sadar di bagian bawah):
+    Ringkasan Status Part (total, % Existing, % Tidak Aktif), Progress
+    Kelengkapan Data (gabungan & per Line), Breakdown per Category, Papan
+    Checklist per Location.
+  - Data source: `onSnapshot` real-time ke `components` (filter client-side
+    `isDeleted === false`) & `locations`, lintas SEMUA Line sekaligus.
+  - **Keputusan akses publik — Opsi D dipilih**: publik (tanpa login) boleh
+    baca `components`/`locations` LANGSUNG (bukan lewat collection `stats`
+    terpisah/Cloud Functions — 2 opsi lain yang lebih "aman" dari sisi
+    exposure data mentah lewat DevTools/network tab, tapi butuh infra
+    tambahan atau banyak titik kode yang rawan drift). Alasan: data part
+    tidak dianggap rahasia oleh admin project, dan tujuan awalnya justru
+    supaya ada 1 link Dashboard tanpa login yang gampang dibuka atasan buat
+    laporan — jadi UI Dashboard cukup menampilkan agregat, sementara halaman
+    grid mentah (`/line/:lineId`) & semua halaman admin tetap di-guard
+    login/AdminRoute seperti biasa.
+  - Security Rules: `allow read: if true` untuk `components` & `locations`
+    (baris `create/update/delete` TIDAK disentuh sama sekali, tetap seperti
+    sebelumnya — sudah diverifikasi surgical, tidak ada fungsi baru yang
+    dikarang seperti insiden `canEditRow` dulu).
+  - Route `/` dilepas dari `PrivateRoute` di `App.jsx`, jadi bisa diakses
+    tanpa login. `Dashboard.jsx` sudah diaudit baris-per-baris soal
+    penggunaan `currentUser`/`userRole` saat null (pengunjung publik) — semua
+    aman lewat optional chaining & short-circuit `&&`, KECUALI blok info
+    nama-user + tombol "Keluar" yang tadinya tampil tanpa syarat. Fix:
+    dibungkus `{currentUser && (...)}`, ditambah tombol **"Login"** sebagai
+    pengganti untuk pengunjung tanpa akun (AI editor menambahkan ini di luar
+    scope prompt, tapi masuk akal & tidak melanggar apapun, jadi diterima).
+  - 🐛 **Bug ditemukan & diperbaiki: Breakdown Category kelihatan "dobel"** —
+    2 penyebab BERBEDA yang kebetulan sama-sama muncul di kategori seperti
+    "Breaker":
+    1. **Data**: grouping kategori pakai key mentah (`c.category?.trim()`)
+       tanpa `toLowerCase()` — "Breaker" & "breaker" (juga "Contactor" vs
+       "CONTACTOR") dihitung sebagai 2 kategori beda, sisa data historis
+       SEBELUM fitur Category combobox ada (combobox cuma cegah typo BARU,
+       tidak retroaktif membenarkan data lama). Fix: grouping key
+       dinormalisasi (`trim().toLowerCase()`), tapi label yang ditampilkan
+       tetap casing asli — dipilih dari variasi yang PALING SERING muncul.
+       `categoryColor()` (hash nama → warna) juga dinormalisasi sama supaya
+       warna konsisten walau ada variasi casing lain lolos di masa depan.
+    2. **Rendering**: implementasi awal AI editor ternyata merender kategori
+       itu DUA KALI di 1 halaman — sekali via Recharts bar chart, sekali
+       lagi via "fallback text list" manual di bawahnya (bug terpisah dari
+       soal data di atas). AI editor lain (Cursor) yang diminta user
+       memperbaiki menghapus fallback list itu, sisa cuma Recharts.
+    - **Keputusan**: bucket "(Kosong)" (baris tanpa Category, dominan dari
+      hasil "Tambah Sekaligus" yang belum diisi) DI-EXCLUDE total dari chart
+      ini — bukan bug, keputusan sadar biar chart fokus ke kategori riil.
+  - 🚨 **Ditemukan saat review: sisa kode debug instrumentation dari Cursor
+    KETINGGALAN di file yang diserahkan ke user** — 3 titik kode mengirim
+    `fetch()` ke `http://127.0.0.1:7837/ingest/...` (alat telemetri internal
+    Cursor sendiri buat proses debugging, BUKAN bagian aplikasi), salah
+    satunya dieksekusi di dalam JSX (`{(() => { fetch(...); return null; })()}`)
+    sehingga jalan SETIAP RENDER — kalau tidak ketahuan, bakal ikut ter-
+    deploy ke production dan terus-menerus gagal diam-diam ke alamat yang
+    tidak eksis di device manapun selain laptop development Cursor. Sudah
+    dihapus total (bukan cuma dikomentari) oleh Claude, diverifikasi lewat
+    `diff` + parser JSX (esbuild) sebelum dikembalikan ke user. **Pelajaran
+    umum**: SELALU diff/baca file hasil kerja AI editor manapun secara utuh
+    sebelum dipakai, jangan cuma percaya "overall udah kerja" dari user/AI
+    editor — sisa artefak debugging semacam ini gampang lolos dari testing
+    manual biasa (karena `fetch()`-nya gagal diam-diam, tidak bikin apapun
+    kelihatan rusak di UI).
+  - 🔄 **Revisi keputusan (bukan bug, keputusan bisnis berubah)**: Progress
+    Kelengkapan Data tadinya sengaja dibikin pakai 7 kolom HARDCODE TETAP
+    (`DASHBOARD_REQUIRED_COLUMNS`) untuk SEMUA orang (admin & publik),
+    dengan alasan konsistensi angka laporan. **Direvisi total** setelah
+    admin project menjelaskan kebutuhan bisnis nyata: kolom Foto & Spesifikasi
+    kerap ditunda pengisiannya (Foto butuh koneksi buat upload ke Gdrive
+    setelah keluar area mesin; Spesifikasi butuh baca fisik part dulu) —
+    dengan syarat tetap 7 kolom, baris yang sebenarnya sudah 100% dikerjakan
+    di lapangan tetap terhitung "belum lengkap" cuma karena 2 kolom itu masih
+    "on progress", bikin persentase Dashboard TIDAK representatif.
+    **Fix**: `DASHBOARD_REQUIRED_COLUMNS` dihapus, Dashboard sekarang
+    `onSnapshot` ke `settings/gridConfig` PERSIS seperti `LinePage.jsx`
+    (`isRowComplete` baca `requiredColumns` dari state, masuk dependency
+    array `useMemo` biar recalculate otomatis real-time saat admin ubah
+    setting). Security Rules `settings/gridConfig`: `allow read: if true`
+    ditambahkan (sebelumnya `isSignedIn()`, publik tidak bisa baca) — baris
+    `write: if isAdmin()` TIDAK disentuh. Konsekuensi: sekarang admin bisa
+    custom persentase kelengkapan SESUAI kondisi nyata lapangan (misal
+    keluarkan Foto/Spesifikasi dari syarat kalau memang sering delay), dan
+    Dashboard (admin maupun publik) otomatis ikut berubah real-time.
+  - User konfirmasi lolos testing manual untuk seluruh rangkaian di atas.
+
+- 🔄 Next up: belum ditentukan — kandidat: PWA/offline persistence penuh,
+  Checklist Testing Grid menyeluruh, atau item lain sesuai prioritas admin
+  project saat itu.
 - ⬜ Belum: PWA/offline persistence penuh (masih pakai `enableIndexedDbPersistence`, ada
   warning deprecated — migrasi ke `FirestoreSettings.cache` belum urgent, catat sebagai
   utang teknis kecil)
-- ✅ Selesai: kolom konfigurasi oleh admin (syarat kelengkapan & visibility per kolom), terverifikasi manual
 - ⬜ Belum: dijalankan checklist testing manual menyeluruh untuk fitur grid (lihat
   dokumen terpisah `Checklist_Testing_Grid.md`)
 
@@ -531,8 +609,17 @@
   Description ( Bella ), Spesification, Warehouse Name, Status, Qty, Foto, Qty WH.
   Plant & Location TIDAK ditampilkan sebagai kolom di grid — jadi konteks navigasi
   (pilih Line lalu tab Location).
-- Syarat "baris selesai": 7 kolom (Sub-Machine, Category, Part, Spesification, Status,
-  Qty, Foto) harus terisi. **Pengecualian**: kalau Status = "Tidak Aktif", Qty boleh kosong.
+- Syarat "baris selesai": **DEFAULT** 7 kolom (Sub-Machine, Category, Part,
+  Spesification, Status, Qty, Foto) harus terisi, TAPI sudah admin-configurable
+  sejak fitur Panel Konfigurasi Admin (`/admin/settings` → `settings/gridConfig`,
+  lihat detail di atas) — admin bisa ubah kolom mana saja yang jadi syarat.
+  **Diikuti oleh 2 tempat sekaligus** (real-time, satu sumber kebenaran):
+  grid kerja (`LinePage.jsx`, styling `incomplete-row`) DAN Dashboard
+  (Progress Kelengkapan Data, gabungan & per Line) — keduanya baca
+  `settings/gridConfig` yang sama, admin ubah 1 kali langsung berlaku di
+  keduanya. **Pengecualian tetap (hardcode, tidak configurable)**: kalau
+  Status = "Tidak Aktif", Qty boleh kosong — ini aturan bisnis khusus kolom
+  Qty, bukan bagian dari daftar kolom wajib yang bisa diatur admin.
 - 3 role: admin (full akses), intern (akses terbatas ke line miliknya saja, ditentukan
   field `assignedLine` di dokumen user), publik (read-only, tanpa login, cuma lihat
   ringkasan/checklist, bukan data mentah).
@@ -543,6 +630,20 @@
 - Label role di UI: "Admin" dan "Internship" (keputusan gaya dari admin project).
 - Dashboard intern menampilkan progress SEMUA Line (gabungan, fungsi leaderboard),
   karena datanya cuma agregat, bukan data mentah sensitif.
+- ⚠️ **DEVIASI SADAR dari Spesifikasi §9 poin 4 — "Tren progress harian" (line
+  chart kecepatan pengerjaan per Line) DI-SKIP PERMANEN**, keputusan eksplisit
+  admin project. Alasan: butuh data model tambahan (histori, bukan cuma state
+  sekarang) dengan 3 opsi yang semuanya ada trade-off (snapshot harian via
+  Cloud Functions = infra ekstra yang dari awal proyek ini coba dihindari;
+  hitung dari `lastUpdated` = bisa menyesatkan kalau baris lama di-edit ulang;
+  reuse activity log = belum tentu cukup granular). Kebutuhan "tahu siapa
+  progress-nya paling depan" dianggap sudah cukup terjawab oleh "Progress per
+  Line" yang sudah ada (otomatis jadi leaderboard, 1 Line = 1 orang) — yang
+  hilang cuma dimensi "kecepatan dari waktu ke waktu", dinilai admin project
+  tidak esensial untuk versi ini. **Dashboard final HANYA punya 4 dari 5
+  visualisasi §9**: ringkasan status part, progress kelengkapan (gabungan &
+  per Line), breakdown per Category, checklist per Location. Kalau nanti mau
+  dihidupkan lagi, lihat diskusi 3 opsi (A/B/C) di histori chat sesi ini.
 
 ## Log Bug/Isu yang Pernah Ditemukan (biar tidak terulang)
 - **Heading nyaris tak terlihat**: sisa CSS dark-mode bawaan template Vite bentrok
@@ -622,11 +723,32 @@
 - ✅ Hover/tap preview Foto — sudah berfungsi penuh setelah fix Portal.
 - ✅ Undo Import cross-page-navigation — sudah diperbaiki dengan context/provider di root.
 - ✅ `useNavigate` tidak ter-import di `ImportExcel.jsx` (bikin halaman crash) — sudah diperbaiki.
-- ✅ Export Excel: kolom `Qty` & `Qty WH` kosong/hilang nilai `0` — sudah diperbaiki.
-- ✅ Export Excel: mismatch nama CSS variable (`var(--primary)` dst vs `--color-*` yang
-  benar) bikin halaman kehilangan seluruh styling — sudah diperbaiki.
-- ✅ Export Excel: tidak ada tombol navigasi dari Dashboard & tombol back salah tujuan —
-  sudah diperbaiki.
+- **Export Excel: 5 bug ditemukan sebelum lolos** (Qty kosong, Qty WH
+  kehilangan nilai 0, mismatch nama CSS variable bikin halaman kelihatan
+  rusak total, tombol navigasi hilang dari Dashboard, tombol back salah
+  tujuan) — lihat detail lengkap tiap bug & pelajarannya di bagian Export
+  Excel di atas.
+
+- **Sisa kode debug instrumentation dari AI editor (Cursor) ketinggalan di
+  file hasil kerja**: 3 titik `fetch()` ke server debug lokal
+  (`127.0.0.1:7837`) milik proses internal Cursor sendiri, salah satunya
+  jalan di setiap render komponen. Tidak bikin apapun kelihatan rusak di
+  UI (request-nya gagal diam-diam), jadi lolos dari testing manual biasa
+  meski user sudah bilang "overall work". → **Pelajaran umum**: SELALU
+  diff/baca file HASIL AKHIR secara utuh sebelum dipakai — jangan cuma
+  percaya konfirmasi "sudah jalan" dari testing manual, karena sisa kode
+  semacam ini secara desain memang tidak menimbulkan gejala yang kelihatan.
+
+- **Breakdown Category kelihatan "dobel"**: 2 penyebab independen yang
+  kebetulan sama-sama nyangkut di kategori yang sama ("Breaker" vs
+  "breaker") — (1) grouping data tidak case-insensitive, sisa variasi
+  casing dari data historis sebelum combobox Category ada; (2) implementasi
+  awal AI editor merender kategori itu 2 kali (Recharts chart + fallback
+  list manual terpisah). → **Pelajaran umum**: kalau ada gejala "muncul
+  dobel", jangan langsung asumsikan 1 akar masalah tunggal — cek kemungkinan
+  ada 2 bug independen yang kebetulan menghasilkan gejala serupa,
+  masing-masing butuh fix terpisah.
+
 
 ## File Acuan (selalu sertakan saat mulai sesi baru dengan AI editor)
 - `Spesifikasi_App_Plant_Sourcing.md` — spesifikasi fitur & arsitektur lengkap

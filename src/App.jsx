@@ -45,11 +45,7 @@ function App() {
               />
               <Route
                 path="/"
-                element={
-                  <PrivateRoute>
-                    <Dashboard />
-                  </PrivateRoute>
-                }
+                element={<Dashboard />}
               />
               <Route
                 path="/line/:lineId"
