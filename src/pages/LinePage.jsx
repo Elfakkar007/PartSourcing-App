@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import {
-  collection, query, where, onSnapshot,
+  collection, query, where, onSnapshot, getDocs,
   addDoc, updateDoc, doc, setDoc, serverTimestamp, writeBatch, arrayUnion
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
@@ -28,33 +28,6 @@ export const COLUMNS = [
   { key: 'foto', label: 'Foto', width: 120, type: 'foto', wide: true },
   { key: 'qtyWh', label: 'Qty WH', width: 80, type: 'number', wide: true },
 ]
-
-/* ------------------------------------------------------------------ */
-/*  Dummy locations — will be replaced by Firestore data later        */
-/* ------------------------------------------------------------------ */
-const LOCATIONS_BY_LINE = {
-  line1: [
-    { id: 'boiler-room', name: 'Boiler Room' },
-    { id: 'turbine-hall', name: 'Turbine Hall' },
-    { id: 'control-room', name: 'Control Room' },
-  ],
-  line2: [
-    { id: 'compressor', name: 'Compressor' },
-    { id: 'electrical-panel', name: 'Electrical Panel' },
-    { id: 'generator-room', name: 'Generator Room' },
-  ],
-  line3: [
-    { id: 'pump-station', name: 'Pump Station' },
-    { id: 'cooling-tower', name: 'Cooling Tower' },
-    { id: 'water-treatment', name: 'Water Treatment' },
-  ],
-  line4: [
-    { id: 'motor-room', name: 'Motor Room' },
-    { id: 'transformer', name: 'Transformer' },
-    { id: 'switchgear', name: 'Switchgear' },
-    { id: 'battery-room', name: 'Battery Room' },
-  ],
-}
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                           */
@@ -157,7 +130,7 @@ function SyncStatusBar() {
 /* ------------------------------------------------------------------ */
 /*  EditableCell — the core inline-edit component                     */
 /* ------------------------------------------------------------------ */
-function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey, categoryOptions }) {
+function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey, categoryOptions, highlight }) {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState('')
   const [showSaved, setShowSaved] = useState(false)
@@ -431,8 +404,12 @@ function EditableCell({ value, field, rowId, type, canEdit, onSave, wide, colKey
   // --- Render: td wrapper ---
   // overflow:visible needed for: wide columns in edit mode, and foto popover
   const needsOverflow = (isEditing && wide) || (type === 'foto' && displayValue)
+  const tdStyle = {
+    ...(needsOverflow ? { overflow: 'visible' } : {}),
+    ...(highlight ? { background: '#e8f0fe' } : {}),
+  }
   return (
-    <td style={needsOverflow ? { overflow: 'visible' } : undefined}>
+    <td style={Object.keys(tdStyle).length > 0 ? tdStyle : undefined}>
       {content}
     </td>
   )
@@ -723,7 +700,7 @@ function BulkFillModal({ count, columns, onConfirm, onCancel }) {
             <p style={{ marginBottom: '8px' }}>
               Anda akan mengisi kolom untuk <strong>{count} baris</strong> terpilih.
             </p>
-            
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <label style={{ fontSize: '13px', fontWeight: 500, color: '#1f2328' }}>Pilih Kolom:</label>
               <select
@@ -791,7 +768,7 @@ function BulkFillModal({ count, columns, onConfirm, onCancel }) {
                 />
               )}
             </div>
-            
+
             <div style={{ padding: '8px', background: 'var(--color-surface-subtle)', borderRadius: '4px', fontSize: '12px', color: 'var(--color-ink-muted)', marginTop: '4px' }}>
               Akan mengisi kolom <strong>{activeColDef?.label}</strong> dengan nilai <strong>{value || '(Kosong)'}</strong> ke {count} baris terpilih.
             </div>
@@ -820,7 +797,7 @@ function FindReplaceModal({ rows, columns, onConfirm, onCancel }) {
   const matches = useMemo(() => {
     if (!findText) return []
     const lowerFindText = findText.toLowerCase()
-    
+
     return rows.map(row => {
       const val = row[selectedCol]
       if (typeof val === 'string' && val.toLowerCase().includes(lowerFindText)) {
@@ -857,7 +834,7 @@ function FindReplaceModal({ rows, columns, onConfirm, onCancel }) {
         </h3>
         <form onSubmit={handleSubmit}>
           <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            
+
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '140px' }}>
                 <label style={{ fontSize: '13px', fontWeight: 500, color: '#1f2328' }}>Kolom:</label>
@@ -894,7 +871,7 @@ function FindReplaceModal({ rows, columns, onConfirm, onCancel }) {
                 />
               </div>
             </div>
-            
+
             {findText ? (
               <div style={{ border: '1px solid var(--color-grid-line)', borderRadius: '4px', overflow: 'hidden', marginTop: '8px' }}>
                 <div style={{ background: 'var(--color-surface-subtle)', padding: '6px 12px', fontSize: '12px', fontWeight: 500, color: 'var(--color-ink-muted)', borderBottom: '1px solid var(--color-grid-line)' }}>
@@ -921,9 +898,9 @@ function FindReplaceModal({ rows, columns, onConfirm, onCancel }) {
                 </div>
               </div>
             ) : (
-               <div style={{ padding: '16px', textAlign: 'center', color: '#80868b', fontSize: '13px', border: '1px dashed var(--color-border)', borderRadius: '4px', marginTop: '8px' }}>
-                 Ketik teks pencarian untuk melihat preview.
-               </div>
+              <div style={{ padding: '16px', textAlign: 'center', color: '#80868b', fontSize: '13px', border: '1px dashed var(--color-border)', borderRadius: '4px', marginTop: '8px' }}>
+                Ketik teks pencarian untuk melihat preview.
+              </div>
             )}
           </div>
           <div className="modal-footer">
@@ -1079,7 +1056,7 @@ function RowFlagPopover({ currentFlag, onSelect, onClose, anchorRect }) {
       <div className="filter-backdrop" onClick={onClose} />
       <div className="filter-dropdown" style={{ top: `${top}px`, left: `${left}px`, minWidth: '160px' }}>
         <div className="filter-dropdown-list" style={{ padding: '4px 0' }}>
-          <div 
+          <div
             className={`flag-menu-item ${currentFlag === null ? 'flag-menu-item--active' : ''}`}
             onClick={() => { onSelect(null); onClose() }}
           >
@@ -1089,7 +1066,7 @@ function RowFlagPopover({ currentFlag, onSelect, onClose, anchorRect }) {
             </svg>
             Tidak ada tanda
           </div>
-          <div 
+          <div
             className={`flag-menu-item ${currentFlag === 'question' ? 'flag-menu-item--active' : ''}`}
             onClick={() => { onSelect('question'); onClose() }}
           >
@@ -1099,7 +1076,7 @@ function RowFlagPopover({ currentFlag, onSelect, onClose, anchorRect }) {
             </svg>
             Perlu Ditanyakan
           </div>
-          <div 
+          <div
             className={`flag-menu-item ${currentFlag === 'skip' ? 'flag-menu-item--active' : ''}`}
             onClick={() => { onSelect('skip'); onClose() }}
           >
@@ -1132,7 +1109,7 @@ export default function LinePage() {
   })
   const [categoryOptions, setCategoryOptions] = useState([])
 
-  const [locations, setLocations] = useState(LOCATIONS_BY_LINE[lineId] || [])
+  const [locations, setLocations] = useState([])
   const [activeLocation, setActiveLocation] = useState(locations[0]?.id || '')
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
@@ -1143,6 +1120,8 @@ export default function LinePage() {
   const [showBulkFillModal, setShowBulkFillModal] = useState(false)
   const [showFindReplaceModal, setShowFindReplaceModal] = useState(false)
   const [showAddLocationModal, setShowAddLocationModal] = useState(false)
+  const [showDeleteLocationModal, setShowDeleteLocationModal] = useState(false)
+  const [locationToDelete, setLocationToDelete] = useState(null) // { id, name, rowCount }
   const [deleteTargetIds, setDeleteTargetIds] = useState([])
   // Column filters: { colKey: Set<checked values> } — null = no filter
   const [columnFilters, setColumnFilters] = useState({})
@@ -1154,6 +1133,18 @@ export default function LinePage() {
   const [openBulkFlagMenu, setOpenBulkFlagMenu] = useState(false)
   const [bulkFlagAnchorRect, setBulkFlagAnchorRect] = useState(null)
   const [errorMsg, setErrorMsg] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  // Copy selection — independent of bulk-action selectedRows
+  const [copySelection, setCopySelection] = useState({ type: null, rowId: null, colKey: null })
+
+  // ---- Undo (client-side only, hilang saat refresh) ----
+  const [undoStack, setUndoStack] = useState([]) // { rowId, field, oldValue, timestamp }[]
+  const UNDO_STACK_LIMIT = 20
+
+  // Reset search query when active location changes
+  useEffect(() => {
+    setSearchQuery('')
+  }, [activeLocation])
 
   // Permission check
   const userLineId = getUserLineId(currentUser?.assignedLine)
@@ -1240,9 +1231,9 @@ export default function LinePage() {
 
   // ---- Row completion logic (for future dashboard/visual use) ----
   const isRowComplete = useCallback((row) => {
+    const exemptWhenInactive = ['qty', 'foto', 'spesification']
     return gridConfig.requiredColumns.every(colKey => {
-      // exception for Qty
-      if (colKey === 'qty' && row.status === 'Tidak Aktif') return true
+      if (exemptWhenInactive.includes(colKey) && row.status === 'Tidak Aktif') return true
       const val = row[colKey]
       return val !== null && val !== undefined && val !== ''
     })
@@ -1256,7 +1247,9 @@ export default function LinePage() {
     }
     const qLoc = query(collection(db, 'locations'), where('line', '==', lineId))
     const unsubLoc = onSnapshot(qLoc, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
+      const data = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(l => !l.isDeleted) // exclude soft-deleted locations
       // Sort by createdAt ascending
       data.sort((a, b) => {
         const aTime = a.createdAt?.toMillis?.() || 0
@@ -1273,14 +1266,8 @@ export default function LinePage() {
           return prev
         })
       } else {
-        const fallback = LOCATIONS_BY_LINE[lineId] || []
-        setLocations(fallback)
-        setActiveLocation(prev => {
-          if (!fallback.find(l => l.id === prev) && fallback.length > 0) {
-            return fallback[0].id
-          }
-          return prev
-        })
+        setLocations([])
+        setActiveLocation('')
       }
     }, (error) => {
       console.error('Firestore onSnapshot error (locations):', error)
@@ -1290,6 +1277,17 @@ export default function LinePage() {
 
   // ---- Save cell to Firestore ----
   const handleSaveCell = useCallback(async (rowId, field, value) => {
+    // ---- Undo: catat nilai lama SEBELUM updateDoc dijalankan ----
+    // oldValue diambil dari state row di memori (bukan query ulang ke Firestore).
+    const currentRow = rows.find(r => r.id === rowId)
+    if (currentRow) {
+      setUndoStack(prev => {
+        const next = [...prev, { rowId, field, oldValue: currentRow[field], timestamp: Date.now() }]
+        // Maksimal 20 entry terakhir — buang entry paling lama kalau melebihi limit.
+        return next.length > UNDO_STACK_LIMIT ? next.slice(next.length - UNDO_STACK_LIMIT) : next
+      })
+    }
+
     const docRef = doc(db, 'components', rowId)
     await updateDoc(docRef, {
       [field]: value,
@@ -1306,7 +1304,31 @@ export default function LinePage() {
         }, { merge: true }).catch(err => console.error('Failed to update category list:', err))
       }
     }
-  }, [currentUser, categoryOptions])
+  }, [currentUser, categoryOptions, rows])
+
+  // ---- Undo: kembalikan cell terakhir yang diubah ke nilai sebelumnya ----
+  // Scope khusus edit cell saja — TIDAK diintegrasikan dengan tambah/hapus/duplikat baris atau tambah lokasi.
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0) return
+    const lastEntry = undoStack[undoStack.length - 1]
+    // Hapus entry dari stack setelah dipakai (sebelum request dikirim, supaya tidak bisa di-undo dobel).
+    setUndoStack(prev => prev.slice(0, -1))
+
+    const docRef = doc(db, 'components', lastEntry.rowId)
+    updateDoc(docRef, {
+      [lastEntry.field]: lastEntry.oldValue,
+      lastEditedBy: currentUser?.uid || '',
+      lastUpdated: serverTimestamp(),
+    }).catch((err) => {
+      console.error('Undo failed:', err)
+      if (err.code === 'permission-denied') {
+        addToast('Permission denied: Anda tidak memiliki akses untuk mengedit data di Line ini.', 'error')
+      } else {
+        addToast('Gagal melakukan undo.', 'error')
+      }
+    })
+    addToast('Perubahan dibatalkan (undo).', 'success')
+  }, [undoStack, currentUser, addToast])
 
   // ---- Add new row ----
   async function handleAddRow() {
@@ -1444,16 +1466,233 @@ export default function LinePage() {
   const hasActiveFilters = Object.keys(columnFilters).length > 0
 
   const filteredRows = useMemo(() => {
-    if (!hasActiveFilters) return rows
-    return rows.filter(row => {
-      return Object.entries(columnFilters).every(([colKey, allowedValues]) => {
-        const rawVal = row[colKey]
-        const isEmpty = rawVal === null || rawVal === undefined || rawVal === ''
-        if (isEmpty) return allowedValues.has(EMPTY_SENTINEL)
-        return allowedValues.has(String(rawVal))
+    let result = rows
+
+    // Apply column filters
+    if (hasActiveFilters) {
+      result = result.filter(row => {
+        return Object.entries(columnFilters).every(([colKey, allowedValues]) => {
+          const rawVal = row[colKey]
+          const isEmpty = rawVal === null || rawVal === undefined || rawVal === ''
+          if (isEmpty) return allowedValues.has(EMPTY_SENTINEL)
+          return allowedValues.has(String(rawVal))
+        })
       })
-    })
-  }, [rows, columnFilters, hasActiveFilters])
+    }
+
+    // Apply search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase()
+      result = result.filter(row => {
+        return visibleColumns.some(col => {
+          const val = row[col.key]
+          if (val === null || val === undefined || val === '') return false
+          return String(val).toLowerCase().includes(q)
+        })
+      })
+    }
+
+    return result
+  }, [rows, columnFilters, hasActiveFilters, searchQuery, visibleColumns])
+
+  // ---- Copy to clipboard (banyak baris via checkbox, atau satu kolom via header) ----
+  const handleCopy = useCallback(async () => {
+    const hasRowSelection = selectedRows.size > 0
+    if (!hasRowSelection && copySelection.type !== 'column') return
+    let text = ''
+    let copiedRowCount = 0
+    const valStr = (v) => (v === null || v === undefined || v === '') ? '' : String(v)
+
+    if (hasRowSelection) {
+      // Urutan ikut urutan tampil di grid (bukan urutan klik checkbox) — baris yang tidak
+      // sedang terlihat (karena filter/search) otomatis tidak ikut ter-copy.
+      const rowsToCopy = filteredRows.filter(r => selectedRows.has(r.id))
+      if (rowsToCopy.length === 0) return
+      copiedRowCount = rowsToCopy.length
+      text = rowsToCopy
+        .map(row => visibleColumns.map(col => valStr(row[col.key])).join('\t'))
+        .join('\n')
+    } else if (copySelection.type === 'column') {
+      text = filteredRows.map(row => valStr(row[copySelection.colKey])).join('\n')
+    }
+
+    try {
+      await navigator.clipboard.writeText(text)
+      addToast(hasRowSelection ? `${copiedRowCount} baris disalin ke clipboard.` : 'Disalin ke clipboard.', 'success')
+    } catch {
+      addToast('Gagal menyalin ke clipboard.', 'error')
+    }
+  }, [selectedRows, copySelection, filteredRows, visibleColumns, addToast])
+
+  // ---- Paste from clipboard ----
+  const handlePaste = useCallback(async () => {
+    const hasRowSelection = selectedRows.size > 0
+    if (!canEdit || (!hasRowSelection && copySelection.type !== 'column')) return
+
+    let text
+    try {
+      text = await navigator.clipboard.readText()
+    } catch (err) {
+      addToast('Izin clipboard ditolak. Pastikan browser mengizinkan akses clipboard.', 'error')
+      return
+    }
+
+    if (!text || !text.trim()) {
+      addToast('Clipboard kosong.', 'error')
+      return
+    }
+
+    // Parse clipboard: rows split by newline, columns by tab
+    const parsedRows = text.split('\n')
+      .map(line => line.split('\t'))
+      .filter(cols => cols.length > 0 && !(cols.length === 1 && cols[0] === '')) // drop trailing empty line
+
+    if (parsedRows.length === 0) {
+      addToast('Clipboard kosong setelah di-parse.', 'error')
+      return
+    }
+
+    // Tentukan titik anchor paste
+    let anchorRowIndex = 0
+    let anchorColIndex = 0
+
+    if (hasRowSelection) {
+      // Anchor = baris teratas (sesuai urutan tampil) dari baris-baris yang dicentang.
+      // Baris hasil paste ditempel berurutan mulai dari situ, apa pun urutan klik checkbox-nya.
+      const selectedIndices = filteredRows
+        .map((r, i) => (selectedRows.has(r.id) ? i : -1))
+        .filter(i => i >= 0)
+      anchorRowIndex = selectedIndices.length > 0 ? Math.min(...selectedIndices) : 0
+      anchorColIndex = 0
+    } else if (copySelection.type === 'column') {
+      anchorRowIndex = 0
+      anchorColIndex = visibleColumns.findIndex(c => c.key === copySelection.colKey)
+    }
+    if (anchorRowIndex < 0) anchorRowIndex = 0
+    if (anchorColIndex < 0) anchorColIndex = 0
+
+    // Build all write operations
+    let batch = writeBatch(db)
+    let opCount = 0
+    let updatedCount = 0
+    let newRowCount = 0
+
+    try {
+      for (let r = 0; r < parsedRows.length; r++) {
+        const rowData = parsedRows[r]
+        const targetRowIndex = anchorRowIndex + r
+        const isExistingRow = targetRowIndex < filteredRows.length
+
+        // Build field updates for this row
+        const updates = {}
+        for (let c = 0; c < rowData.length; c++) {
+          const targetColIndex = anchorColIndex + c
+          if (targetColIndex >= visibleColumns.length) continue // skip overflow columns
+
+          const targetCol = visibleColumns[targetColIndex]
+          let val = rowData[c]
+
+          // Type conversion
+          if (targetCol.type === 'number') {
+            const num = Number(val)
+            val = isNaN(num) ? null : num
+          } else {
+            // String — empty string for null/undefined, otherwise as-is
+            val = (val === null || val === undefined) ? '' : val
+          }
+
+          updates[targetCol.key] = val
+        }
+
+        if (Object.keys(updates).length === 0) continue
+
+        if (isExistingRow) {
+          // Update existing row
+          const rowRef = doc(db, 'components', filteredRows[targetRowIndex].id)
+          batch.update(rowRef, {
+            ...updates,
+            lastEditedBy: currentUser?.uid || '',
+            lastUpdated: serverTimestamp(),
+          })
+          updatedCount++
+        } else {
+          // Create new row: merge paste data into a fresh empty row (single write, no double-op)
+          const newRowRef = doc(collection(db, 'components'))
+          const emptyRow = makeEmptyRow(lineId, activeLocation, currentUser?.uid)
+          batch.set(newRowRef, { ...emptyRow, ...updates })
+          newRowCount++
+        }
+
+        opCount++
+        // Firestore batch limit: 500 ops per batch
+        if (opCount % 500 === 0) {
+          await batch.commit()
+          batch = writeBatch(db)
+        }
+      }
+
+      // Commit remaining ops
+      if (opCount % 500 !== 0) {
+        await batch.commit()
+      }
+
+      // Toast
+      const parts = []
+      if (updatedCount > 0) parts.push(`${updatedCount} baris diperbarui`)
+      if (newRowCount > 0) parts.push(`${newRowCount} baris baru dibuat`)
+      addToast(`${parts.join(', ')} dari paste.`, 'success')
+
+      logActivity('paste_data', currentUser?.uid, {
+        count: updatedCount + newRowCount,
+        line: lineId,
+        locationName: activeLocationName,
+      })
+    } catch (err) {
+      console.error('Paste batch failed:', err)
+      if (err.code === 'permission-denied') {
+        addToast('Permission denied: Anda tidak memiliki akses untuk mengedit data di Line ini.', 'error')
+      } else {
+        addToast('Gagal melakukan paste.', 'error')
+      }
+    }
+  }, [canEdit, selectedRows, copySelection, filteredRows, visibleColumns, lineId, activeLocation, activeLocationName, currentUser, addToast])
+
+  // Ctrl+C / Cmd+C and Ctrl+V / Cmd+V keyboard shortcuts
+  useEffect(() => {
+    if (selectedRows.size === 0 && copySelection.type !== 'column') return
+    function onKeyDown(e) {
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        e.preventDefault()
+        handleCopy()
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v' && canEdit) {
+        e.preventDefault()
+        handlePaste()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [selectedRows.size, copySelection.type, handleCopy, handlePaste, canEdit])
+
+  // Ctrl+Z / Cmd+Z keyboard shortcut for Undo.
+  // HANYA aktif saat fokus BUKAN di input/textarea/select cell — supaya tidak
+  // konflik dengan undo teks bawaan browser saat user sedang mengetik.
+  useEffect(() => {
+    if (!canEdit || undoStack.length === 0) return
+    function onKeyDown(e) {
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        handleUndo()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [canEdit, undoStack.length, handleUndo])
+
 
   function handleFilterApply(colKey, checkedSet) {
     setColumnFilters(prev => {
@@ -1556,7 +1795,7 @@ export default function LinePage() {
       })
     }
     batch.commit().then(() => {
-    addToast(`${matches.length} baris berhasil diperbarui.`, 'success')
+      addToast(`${matches.length} baris berhasil diperbarui.`, 'success')
     }).catch(err => {
       console.error('Failed to find and replace:', err)
       if (err.code === 'permission-denied') {
@@ -1569,11 +1808,11 @@ export default function LinePage() {
   function handleAddLocation(e, locName) {
     e.preventDefault()
     if (!canEdit || !locName.trim()) return
-    
+
     const trimmedName = locName.trim()
     const baseSlug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
     const id = `${lineId}__${baseSlug}`
-    
+
     // Check duplicate (name-based)
     const exists = locations.find(l => l.name.toLowerCase() === trimmedName.toLowerCase())
     if (exists) {
@@ -1587,7 +1826,7 @@ export default function LinePage() {
     })
 
     const docRef = doc(db, 'locations', id)
-    
+
     setDoc(docRef, {
       name: trimmedName,
       line: lineId,
@@ -1605,6 +1844,82 @@ export default function LinePage() {
     addToast('Location berhasil ditambahkan.', 'success')
     setActiveLocation(id)
     setShowAddLocationModal(false)
+  }
+
+  // ---- Delete Location (admin only, soft-delete) ----
+  async function requestDeleteLocation(loc) {
+    if (userRole !== 'admin') return
+    // Count components in this location
+    const q = query(
+      collection(db, 'components'),
+      where('locationId', '==', loc.id),
+      where('isDeleted', '==', false)
+    )
+    const snap = await getDocs(q)
+    setLocationToDelete({ id: loc.id, name: loc.name, rowCount: snap.size })
+    setShowDeleteLocationModal(true)
+  }
+
+  function handleDeleteLocation() {
+    if (!locationToDelete || userRole !== 'admin') return
+    const { id: locId, name: locName, rowCount } = locationToDelete
+
+    // Fetch all component docs for this location and soft-delete them + the location doc
+    const q = query(
+      collection(db, 'components'),
+      where('locationId', '==', locId),
+      where('isDeleted', '==', false)
+    )
+    getDocs(q).then(snap => {
+      const CHUNK = 499 // Firestore max 500 ops per batch; reserve 1 for the location doc
+      const deletedMeta = {
+        isDeleted: true,
+        deletedBy: currentUser?.uid || '',
+        deletedAt: serverTimestamp(),
+      }
+
+      // Chunk component docs into batches of 499
+      const chunks = []
+      for (let i = 0; i < snap.docs.length; i += CHUNK) {
+        chunks.push(snap.docs.slice(i, i + CHUNK))
+      }
+
+      // If there are no components, still need one batch for the location doc
+      if (chunks.length === 0) chunks.push([])
+
+      // For the LAST chunk, include the location doc itself (fits within 500 limit)
+      const commitChunks = chunks.map((chunkDocs, idx) => {
+        const batch = writeBatch(db)
+        chunkDocs.forEach(d => batch.update(doc(db, 'components', d.id), deletedMeta))
+        if (idx === chunks.length - 1) {
+          batch.update(doc(db, 'locations', locId), deletedMeta)
+        }
+        return batch.commit()
+      })
+
+      Promise.all(commitChunks).catch(err => {
+        console.error('Failed to delete location:', err)
+        if (err.code === 'permission-denied') {
+          addToast('Permission denied: Hanya admin yang bisa menghapus lokasi.', 'error')
+        } else {
+          addToast('Gagal menghapus lokasi.', 'error')
+        }
+      })
+
+      logActivity('hapus_lokasi', currentUser?.uid, {
+        locationName: locName,
+        line: lineId,
+        count: rowCount,
+      })
+
+      addToast(`Lokasi '${locName}' dan ${rowCount} baris berhasil dihapus.`, 'success')
+    }).catch(err => {
+      console.error('Failed to fetch components for location delete:', err)
+      addToast('Gagal memuat data lokasi untuk dihapus.', 'error')
+    })
+
+    setShowDeleteLocationModal(false)
+    setLocationToDelete(null)
   }
 
   // Total table width for min-width
@@ -1726,16 +2041,49 @@ export default function LinePage() {
         {/* ---- Location Tabs ---- */}
         <div className="location-tabs" style={{ background: '#ffffff', display: 'flex', alignItems: 'center' }}>
           {locations.map((loc) => (
-            <button
+            <div
               key={loc.id}
-              className={`location-tab ${activeLocation === loc.id ? 'location-tab--active' : ''}`}
-              onClick={() => setActiveLocation(loc.id)}
+              style={{ display: 'flex', alignItems: 'center', position: 'relative' }}
             >
-              {loc.name}
-            </button>
+              <button
+                className={`location-tab ${activeLocation === loc.id ? 'location-tab--active' : ''}`}
+                onClick={() => setActiveLocation(loc.id)}
+                style={userRole === 'admin' ? { paddingRight: '28px' } : undefined}
+              >
+                {loc.name}
+              </button>
+              {userRole === 'admin' && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); requestDeleteLocation(loc) }}
+                  title={`Hapus lokasi '${loc.name}'`}
+                  style={{
+                    position: 'absolute',
+                    right: '4px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '2px',
+                    lineHeight: 1,
+                    color: '#80868b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    borderRadius: '3px',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = '#d93025'}
+                  onMouseLeave={e => e.currentTarget.style.color = '#80868b'}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </button>
+              )}
+            </div>
           ))}
           {canEdit && (
-            <button 
+            <button
               onClick={() => setShowAddLocationModal(true)}
               style={{
                 background: 'transparent',
@@ -1791,6 +2139,26 @@ export default function LinePage() {
                 Tambah Sekaligus
               </button>
 
+              {/* Undo cell edit */}
+              <button
+                className="btn-secondary"
+                style={{ padding: '6px 14px', fontSize: '13px', gap: '6px', opacity: undoStack.length ? 1 : 0.45 }}
+                onClick={handleUndo}
+                disabled={undoStack.length === 0}
+                title={
+                  undoStack.length
+                    ? (() => {
+                      const lastEntry = undoStack[undoStack.length - 1]
+                      const colLabel = COLUMNS.find(c => c.key === lastEntry.field)?.label || lastEntry.field
+                      const rowNum = rows.findIndex(r => r.id === lastEntry.rowId) + 1
+                      return `Undo: ${colLabel} di baris #${rowNum > 0 ? rowNum : '?'} (Ctrl+Z)`
+                    })()
+                    : 'Tidak ada perubahan untuk di-undo'
+                }
+              >
+                ↩️ Undo
+              </button>
+
               {/* Find and Replace */}
               <button
                 className="btn-secondary"
@@ -1802,6 +2170,50 @@ export default function LinePage() {
                   <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
                 Cari & Ganti
+              </button>
+
+              {/* Copy selection */}
+              <button
+                className="btn-secondary"
+                style={{ padding: '6px 14px', fontSize: '13px', gap: '6px', opacity: (selectedRows.size > 0 || copySelection.type === 'column') ? 1 : 0.45 }}
+                onClick={handleCopy}
+                disabled={selectedRows.size === 0 && copySelection.type !== 'column'}
+                title={
+                  selectedRows.size > 0
+                    ? `Salin ${selectedRows.size} baris terpilih (Ctrl+C)`
+                    : copySelection.type === 'column'
+                      ? 'Salin ke clipboard (Ctrl+C)'
+                      : 'Centang baris (checkbox) atau pilih header kolom dulu'
+                }
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                Salin
+              </button>
+
+              {/* Paste from clipboard */}
+              <button
+                className="btn-secondary"
+                style={{ padding: '6px 14px', fontSize: '13px', gap: '6px', opacity: (canEdit && (selectedRows.size > 0 || copySelection.type === 'column')) ? 1 : 0.45 }}
+                onClick={handlePaste}
+                disabled={!canEdit || (selectedRows.size === 0 && copySelection.type !== 'column')}
+                title={
+                  !canEdit
+                    ? 'Hanya bisa paste di mode edit'
+                    : selectedRows.size > 0
+                      ? 'Tempel mulai dari baris teratas yang dicentang (Ctrl+V)'
+                      : copySelection.type === 'column'
+                        ? 'Tempel dari clipboard (Ctrl+V)'
+                        : 'Centang baris (checkbox) atau pilih header kolom dulu sebagai anchor'
+                }
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                </svg>
+                Tempel
               </button>
 
               {/* Bulk delete — only visible when rows are selected */}
@@ -1865,13 +2277,49 @@ export default function LinePage() {
               )}
 
               <span style={{ fontSize: '12px', color: '#80868b', marginLeft: '4px' }}>
-                {activeLocationName} — {hasActiveFilters ? `${filteredRows.length} / ${rows.length}` : `${rows.length}`} baris
+                {activeLocationName} — {(hasActiveFilters || searchQuery.trim()) ? `${filteredRows.length} / ${rows.length}` : `${rows.length}`} baris
               </span>
+
+              {/* Search bar */}
+              <div style={{ position: 'relative', marginLeft: 'auto' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#80868b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Cari di lokasi ini..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    padding: '5px 8px 5px 28px',
+                    fontSize: '12px',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: '6px',
+                    width: '180px',
+                    background: 'var(--color-canvas)',
+                    color: 'var(--color-ink)',
+                    outline: 'none',
+                  }}
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '0', lineHeight: 1, color: '#80868b' }}
+                    title="Hapus pencarian"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '13px', color: '#5f6368' }}>
-                {activeLocationName} — {hasActiveFilters ? `${filteredRows.length} / ${rows.length}` : `${rows.length}`} baris
+                {activeLocationName} — {(hasActiveFilters || searchQuery.trim()) ? `${filteredRows.length} / ${rows.length}` : `${rows.length}`} baris
               </span>
               {hasActiveFilters && (
                 <button
@@ -1882,6 +2330,41 @@ export default function LinePage() {
                   Hapus Filter
                 </button>
               )}
+              {/* Search bar (read-only view) */}
+              <div style={{ position: 'relative', marginLeft: 'auto' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#80868b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Cari di lokasi ini..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    padding: '5px 8px 5px 28px',
+                    fontSize: '12px',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: '6px',
+                    width: '180px',
+                    background: 'var(--color-canvas)',
+                    color: 'var(--color-ink)',
+                    outline: 'none',
+                  }}
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '0', lineHeight: 1, color: '#80868b' }}
+                    title="Hapus pencarian"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -1927,22 +2410,54 @@ export default function LinePage() {
                 <tr>
                   {canEdit && (
                     <th className="grid-checkbox-col" style={{ width: `${CHECKBOX_WIDTH}px` }}>
-                      <input
-                        type="checkbox"
-                        checked={filteredRows.length > 0 && selectedRows.size === filteredRows.length}
-                        onChange={toggleSelectAll}
-                        title="Pilih semua"
-                      />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <input
+                          type="checkbox"
+                          checked={filteredRows.length > 0 && selectedRows.size === filteredRows.length}
+                          onChange={toggleSelectAll}
+                          title="Pilih semua"
+                        />
+                        {selectedRows.size > 0 && (
+                          <button
+                            onClick={() => setSelectedRows(new Set())}
+                            title="Batal pilih"
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: '0',
+                              lineHeight: 1,
+                              color: '#d93025',
+                              display: 'flex',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     </th>
                   )}
                   <th className="grid-flag-col" style={{ width: `${FLAG_WIDTH}px` }}></th>
                   <th className="row-num" style={{ width: `${ROW_NUM_WIDTH}px` }}>#</th>
                   {visibleColumns.map((col) => {
                     const isActive = colKey => colKey in columnFilters
+                    const isColSelected = copySelection.type === 'column' && copySelection.colKey === col.key
                     return (
-                      <th key={col.key} style={{ width: `${col.width}px` }}>
+                      <th key={col.key} style={{ width: `${col.width}px`, background: isColSelected ? '#e8f0fe' : undefined }}>
                         <div className="th-filter-wrapper">
-                          <span>{col.label}</span>
+                          <span
+                            style={{ cursor: 'pointer', userSelect: 'none', color: isColSelected ? '#1a73e8' : undefined }}
+                            title={`Pilih kolom ${col.label} untuk disalin`}
+                            onClick={() => setCopySelection(prev =>
+                              prev.type === 'column' && prev.colKey === col.key
+                                ? { type: null, rowId: null, colKey: null }
+                                : { type: 'column', rowId: null, colKey: col.key }
+                            )}
+                          >{col.label}</span>
                           <button
                             className={`filter-icon-btn ${isActive(col.key) ? 'filter-icon-btn--active' : ''}`}
                             title={`Filter ${col.label}`}
@@ -1966,86 +2481,99 @@ export default function LinePage() {
                   const isSelected = selectedRows.has(row.id)
                   const hasFlag = !!row.flag
                   const isComplete = isRowComplete(row)
-                  
+
                   let trClass = ''
                   if (isSelected && hasFlag) trClass = `row-flag-${row.flag} row-selected-flagged`
                   else if (isSelected) trClass = 'row-selected'
                   else if (hasFlag) trClass = `row-flag-${row.flag}`
 
                   return (
-                  <tr key={row.id} className={trClass}>
-                    {canEdit && (
-                      <td className="grid-checkbox-col">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleRowSelection(row.id)}
-                        />
-                      </td>
-                    )}
-                    <td className="grid-flag-col">
-                      <button 
-                        className={`row-flag-btn ${row.flag ? `row-flag-btn--${row.flag}` : ''}`}
-                        onClick={(e) => canEdit && openFlagMenu(row.id, e)}
-                        title={row.flag === 'question' ? 'Perlu Ditanyakan' : row.flag === 'skip' ? 'Dilewati' : canEdit ? 'Beri Tanda' : ''}
-                        disabled={!canEdit}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" 
-                          fill={row.flag ? "currentColor" : "none"} 
-                          stroke="currentColor" 
-                          strokeWidth="2" 
-                          strokeLinecap="round" strokeLinejoin="round"
+                    <tr key={row.id} className={trClass}>
+                      {canEdit && (
+                        <td className="grid-checkbox-col">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleRowSelection(row.id)}
+                          />
+                        </td>
+                      )}
+                      <td className="grid-flag-col">
+                        <button
+                          className={`row-flag-btn ${row.flag ? `row-flag-btn--${row.flag}` : ''}`}
+                          onClick={(e) => canEdit && openFlagMenu(row.id, e)}
+                          title={row.flag === 'question' ? 'Perlu Ditanyakan' : row.flag === 'skip' ? 'Dilewati' : canEdit ? 'Beri Tanda' : ''}
+                          disabled={!canEdit}
                         >
-                          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                          <line x1="4" y1="22" x2="4" y2="15" />
-                        </svg>
-                      </button>
-                    </td>
-                    <td className="row-num">
-                      <div className={`grid-cell-display grid-cell-display--readonly ${!isComplete ? 'incomplete-row' : ''}`} style={{ justifyContent: 'center', padding: '6px 4px' }}>
-                        {idx + 1}
-                      </div>
-                    </td>
-                    {visibleColumns.map((col) => (
-                      <EditableCell
-                        key={col.key}
-                        value={row[col.key]}
-                        field={col.key}
-                        rowId={row.id}
-                        type={col.type}
-                        canEdit={canEdit}
-                        onSave={handleSaveCell}
-                        wide={col.wide}
-                        categoryOptions={categoryOptions}
-                      />
-                    ))}
-                    {canEdit && (
-                      <td className="grid-action-col">
-                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
-                          <button
-                            className="action-btn"
-                            title="Duplikat baris"
-                            onClick={() => handleDuplicate(row)}
+                          <svg width="14" height="14" viewBox="0 0 24 24"
+                            fill={row.flag ? "currentColor" : "none"}
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round" strokeLinejoin="round"
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
-                          </button>
-                          <button
-                            className="action-btn action-btn--danger"
-                            title="Hapus baris"
-                            onClick={() => requestDelete([row.id])}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            </svg>
-                          </button>
+                            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                            <line x1="4" y1="22" x2="4" y2="15" />
+                          </svg>
+                        </button>
+                      </td>
+                      <td className="row-num">
+                        <div
+                          className={`grid-cell-display grid-cell-display--readonly ${!isComplete ? 'incomplete-row' : ''}`}
+                          style={{
+                            justifyContent: 'center',
+                            padding: '6px 4px',
+                            userSelect: 'none',
+                          }}
+                        >
+                          {idx + 1}
                         </div>
                       </td>
-                    )}
-                  </tr>
+                      {visibleColumns.map((col) => {
+                        const isCellHighlighted =
+                          isSelected ||
+                          (copySelection.type === 'column' && copySelection.colKey === col.key)
+                        return (
+                          <EditableCell
+                            key={col.key}
+                            value={row[col.key]}
+                            field={col.key}
+                            rowId={row.id}
+                            type={col.type}
+                            canEdit={canEdit}
+                            onSave={handleSaveCell}
+                            wide={col.wide}
+                            categoryOptions={categoryOptions}
+                            highlight={isCellHighlighted}
+                          />
+                        )
+                      })}
+                      {canEdit && (
+                        <td className="grid-action-col">
+                          <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                            <button
+                              className="action-btn"
+                              title="Duplikat baris"
+                              onClick={() => handleDuplicate(row)}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                              </svg>
+                            </button>
+                            <button
+                              className="action-btn action-btn--danger"
+                              title="Hapus baris"
+                              onClick={() => requestDelete([row.id])}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="3 6 5 6 21 6" />
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
                   )
                 })}
               </tbody>
@@ -2118,6 +2646,17 @@ export default function LinePage() {
             confirmText={`Hapus ${deleteTargetIds.length} Baris`}
             onConfirm={handleDelete}
             onCancel={() => { setShowDeleteModal(false); setDeleteTargetIds([]) }}
+          />
+        )}
+        {/* Delete Location Confirmation (admin only) */}
+        {showDeleteLocationModal && locationToDelete && (
+          <ConfirmDeleteModal
+            title="Hapus Lokasi"
+            itemLabel={`lokasi '${locationToDelete.name}' beserta ${locationToDelete.rowCount} baris di dalamnya`}
+            warningText={`Menghapus lokasi '${locationToDelete.name}' akan menyembunyikan lokasi ini beserta seluruh baris di dalamnya. Bisa dipulihkan lewat Firebase Console kalau diperlukan.`}
+            confirmText="Hapus Lokasi"
+            onConfirm={handleDeleteLocation}
+            onCancel={() => { setShowDeleteLocationModal(false); setLocationToDelete(null) }}
           />
         )}
       </main>

@@ -273,8 +273,9 @@ export default function Dashboard() {
   }, [])
 
   function isRowComplete(row) {
+    const exemptWhenInactive = ['qty', 'foto', 'spesification']
     return requiredColumns.every(col => {
-      if (col === 'qty' && row.status === 'Tidak Aktif') return true
+      if (exemptWhenInactive.includes(col) && row.status === 'Tidak Aktif') return true
       const val = row[col]
       return val !== null && val !== undefined && val !== ''
     })

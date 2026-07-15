@@ -10,6 +10,8 @@ const ACTION_LABELS = {
   'duplikat_baris': 'Menduplikat baris',
   'bulk_hapus_baris': 'Menghapus baris (bulk)',
   'tambah_lokasi': 'Menambah lokasi',
+  'hapus_lokasi': 'Menghapus lokasi',
+  'paste_data': 'Paste data (bulk)',
   'pulihkan_baris': 'Memulihkan baris',
   'bulk_pulihkan_baris': 'Memulihkan baris (bulk)',
   'hapus_permanen': 'Hapus permanen',

@@ -101,7 +101,6 @@ function App() {
           </ImportUndoProvider>
         </AuthProvider>
       </ToastProvider>
-      <UpdatePrompt />
     </BrowserRouter>
   )
 }
